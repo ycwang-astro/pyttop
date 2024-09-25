@@ -8,7 +8,7 @@ Built-in matchers.
 """
 
 import numpy as np
-from astrotable.utils import find_idx, find_eq, find_dup
+from .utils import find_idx, find_eq, find_dup
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from astropy.units import UnitTypeError
@@ -25,7 +25,7 @@ class DuplicationWarning(UnsafeMatchingWarning):
 class ExactMatcher():
     def __init__(self, value, value1=None):
         '''
-        Used to match `astrotable.table.Data` objects `data1` to `data`.
+        Used to match `pyttop.table.Data` objects `data1` to `data`.
         Match records with exact values.
         This should be passed to method `data.match()`.
         See `help(data.match)`.
@@ -119,7 +119,7 @@ class ExactMatcher():
 class SkyMatcher():
     def __init__(self, thres=1, coord=None, coord1=None, unit=u.deg, unit1=u.deg):
         '''
-        Used to match `astrotable.table.Data` objects `data1` to `data`.
+        Used to match `pyttop.table.Data` objects `data1` to `data`.
         Match records with nearest coordinates.
         This should be passed to method `data.match()`.
         See `help(data.match)`.
@@ -254,9 +254,9 @@ class SkyMatcher():
 
         Parameters
         ----------
-        data : ``astrotable.table.Data``
+        data : ``pyttop.table.Data``
             The base data of the match.
-        data1 : ``astrotable.table.Data``
+        data1 : ``pyttop.table.Data``
             The data to be matched to ``data1``.
 
         Returns
@@ -281,7 +281,7 @@ class SkyMatcher():
 class IdentityMatcher():
     def __init__(self):
         '''
-        Used to match ``astrotable.table.Data`` objects ``data1`` to ``data``.
+        Used to match ``pyttop.table.Data`` objects ``data1`` to ``data``.
         Directly match records row by row, i.e. row #1 matched to row #1, row #2 matched to row #2, etc.
         Only possible if ``len(data1) == len(data)``.
         This should be passed to method `data.match()`.

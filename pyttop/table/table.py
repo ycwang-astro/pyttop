@@ -11,9 +11,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy.table import Column, Table, hstack
 # from astropy.io import ascii as apascii
-from astrotable.utils import objdict, save_pickle, load_pickle, keyword_alias, bitwise_all, pause_and_warn, find_dup
-import astrotable.plot as plot
-import astrotable
+from ..utils import objdict, save_pickle, load_pickle, keyword_alias, bitwise_all, pause_and_warn, find_dup, SummaryDict
+from .. import plot
+from .. import __version__
 import warnings
 import multiprocessing as mp
 from collections.abc import Iterable
@@ -38,6 +38,13 @@ except ImportError:
     has_pd = False
 else:
     has_pd = True
+    
+try:
+    from tqdm import tqdm
+except ImportError:
+    has_tqdm = False
+else:
+    has_tqdm = True
 
 subplot_arrange = {
     1: [1, 1],
@@ -109,7 +116,7 @@ class ColumnNotFoundError(LookupError):
 
 class Subset():
     '''
-    A class to specify a row subset of an ``astrotable.table.Data`` object.
+    A class to specify a row subset of an ``pyttop.table.Data`` object.
     Although this class is independent to the ``Data`` class, it should be only used together with a ``Data`` object.
     
     To specify the selection criteria, name, etc. of a subset, the general way is::
@@ -158,7 +165,7 @@ class Subset():
         ----------
         selection : callable (e.g. function), iterable (e.g. array-like) or string
             If it is iterable, it should be a boolean array indicating whether each row is included in this subset.
-            It should have a shape of ``(len(data),)`` where ``data`` is an ``astrotable.table.Data`` instance.  
+            It should have a shape of ``(len(data),)`` where ``data`` is an ``pyttop.table.Data`` instance.  
         
             If it is callable, it should be defined like below::
             
@@ -183,7 +190,7 @@ class Subset():
         Notes
         -----
         The inputs of ``__init__()`` will be attributes of the object.
-        By executing the ``eval_`` method, an ``astrotable.table.Data`` object ``data`` is inputted, and:
+        By executing the ``eval_`` method, an ``pyttop.table.Data`` object ``data`` is inputted, and:
             - The attribute ``selection`` will be converted to a boolean array;
             - The attribute ``name`` will be set to the default name if it is None;
             - The attribute ``expression`` will be automatically set if it is None;
@@ -197,7 +204,7 @@ class Subset():
         
         **Caveat**. Subsets constructed with ``expr`` and ``~expr`` are NOT necessarily complements of each other!
         See the below example::
-            >>> from astrotable.table import Data, Subset
+            >>> from pyttop.table import Data, Subset
             >>> d = Data(name='test')
             >>> d['x'] = [-1, 1, -99]
             >>> d.mask_missing(missval=-99)
@@ -259,7 +266,7 @@ class Subset():
 
         Returns
         -------
-        ``astrotable.table.Subset``
+        ``pyttop.table.Subset``
 
         '''
         # get Subset from range
@@ -289,7 +296,7 @@ class Subset():
 
         Returns
         -------
-        ``astrotable.table.Subset``
+        ``pyttop.table.Subset``
 
         '''
         def selection(t):
@@ -317,7 +324,7 @@ class Subset():
 
         Parameters
         ----------
-        data : ``astrotable.table.Data``
+        data : ``pyttop.table.Data``
             
         existing_keys : Iterable, optional
             Names of subsets that already exists. 
@@ -344,6 +351,9 @@ class Subset():
             if self.expression is None: 
                 self.expression = self.selection
             if self.name is None:
+                # if '/' in self.expression:
+                #     msg = f"failed to set subset name"
+                #     warnings.warn(msg)
                 self.name = self.expression
             
             # if self.selection in ['all', 'All']:
@@ -422,6 +432,12 @@ class Subset():
         for colname, labelstr in data.col_labels.items():
             self.label = self.label.replace(colname, labelstr)
     
+        # remove '/' in name
+        # '/' may be present in name when setting `self.name = self.expression` and `'/' in self.expression`.
+        if '/' in self.name:
+            self.name = self.name.replace('/', '(slash)')
+    
+    
     def _cut(self, index, new_data=None):
         # return a cutted Subset (cutted with ``index``)
         cutted_subset = Subset(
@@ -438,6 +454,24 @@ class Subset():
     @property
     def size(self): # the size of the subset
         return np.sum(np.array(self))
+    
+    def eqs(self, subset):
+        '''
+        Checks if selections of two subsets are the same. For example::
+            if subset1.eqs(subset2):
+                print('same')
+
+        Parameters
+        ----------
+        subset : `pyttop.table.Subset`
+
+        Returns
+        -------
+        bool
+        '''
+        if self.data is not subset.data:
+            raise ValueError('comparing subsets of different data')
+        return np.all(np.array(self) == np.array(subset))
     
     @staticmethod
     def _merge_data_info(method):
@@ -510,8 +544,10 @@ class Subset():
         return new_subset
     
     def __array__(self):
-        if not hasattr(self.selection, 'dtype') or self.selection.dtype != bool: #not isinstance(self.selection, Iterable):
-            raise TypeError('Selection should be a boolean array. Maybe forgot to run eval_()?')
+        # if not hasattr(self.selection, 'dtype') or self.selection.dtype != bool: #not isinstance(self.selection, Iterable):
+            # raise TypeError('Selection should be a boolean array. Maybe forgot to run eval_()?')
+        if not isinstance(self.selection, np.ndarray) or self.selection.dtype != bool:
+            raise TypeError('selection should be a boolean array')
         if np.ma.is_masked(self.selection): # this never happens after I directly fill masked to False. This is kept to handle instances of old versions.
             return self.selection.filled(False) # IMPORTANT: Masked elements do NOT belong to this subset!
         else:
@@ -634,11 +670,8 @@ class Data():
         self.matchlog = []
         
         # subset
-        self.subset_all = Subset(np.ones(len(self)).astype(bool), name='all', expression='all', label='All') # subset named "all"
-        # self.subset_all.data_name = self.name
-        self.subset_all._data = self
         self.subset_groups = {
-            'default': {'all': self.subset_all}
+            'default': {'all': self._gen_subset_all()}
             }
         
         # plot
@@ -670,16 +703,16 @@ class Data():
     #### matching & merging 
     def match(self, data1, matcher, verbose=True, replace=False):
         '''
-        Match this data object with another `astrotable.table.Data` object `data1`.
+        Match this data object with another `pyttop.table.Data` object `data1`.
 
         Parameters
         ----------
-        data1 : `astrotable.table.Data`
+        data1 : `pyttop.table.Data`
             Data to be matched to this Data.
         matcher : any recognized matcher object
             A matcher object used to match the two data objects.
-            Built-in matchers includes, e.g., `astrotable.matcher.ExactMatcher` and `astrotable.matcher.SkyMatcher`.
-            See e.g. `help(astrotable.matcher.SkyMatcher)` for more information.
+            Built-in matchers includes, e.g., `pyttop.matcher.ExactMatcher` and `pyttop.matcher.SkyMatcher`.
+            See e.g. `help(pyttop.matcher.SkyMatcher)` for more information.
             
             A matcher object should be defined like below:
                 
@@ -718,7 +751,7 @@ class Data():
         
         '''
         if not (isinstance(data1, Data) or type(data1) == type(self)):
-            raise TypeError(f"only supports matching 'astrotable.table.Data' type; got {type(data1)}")
+            raise TypeError(f"only supports matching 'pyttop.table.Data' type; got {type(data1)}")
         if inspect.isclass(matcher):
             try:
                 matcher = matcher()
@@ -729,8 +762,9 @@ class Data():
             if replace:
                 self.unmatch(data1)
             else:
-                raise ValueError(f"Data with name '{data1.name}' has already been matched. This may result from name duplicates or re-matching the same catalog. \
-Set 'replace=True' to replace the existing match with '{data1.name}'.")
+                raise ValueError(f"Data with name '{data1.name}' has already been matched. This may result from name duplicates or re-matching the same catalog. "
+                                 "Set 'replace=True' to replace the existing match with '{data1.name}'.")
+                # names are currently used as IDs in the context of matching and merging, so any name conflict is not allowed.
         
         matcher.get_values(self, data1, verbose=verbose)
         idx, matched = matcher.match()
@@ -755,7 +789,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
 
         Parameters
         ----------
-        data1 : ``astrotable.table.Data`` or str
+        data1 : ``pyttop.table.Data`` or str
             The Data or the name of the Data.
         verbose : bool, optional
             Whether to output information. The default is True.
@@ -771,7 +805,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         elif type(data1) is str:
             name1 = data1
         else:
-            raise TypeError(f"only supports 'astrotable.table.Data' or str; got {type(data1)}")
+            raise TypeError(f"only supports 'pyttop.table.Data' or str; got {type(data1)}")
         
         if name1 not in self.matchnames:
             warnings.warn(f"Data with name '{data1.name}' has never been matched. Nothing is done.")
@@ -1033,7 +1067,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             pass
         return miss
     
-    def merge(self, depth=-1, keep_unmatched=[], merge_columns={}, ignore_columns={}, outname=None, keep_subsets=False, matchinfo_subset=False, verbose=True):
+    def merge(self, depth=-1, keep_unmatched=[], merge_columns={}, ignore_columns={}, innames={}, outname=None, keep_subsets=False, matchinfo_subset=False, verbose=True):
         '''
         Merge all data objects that are matched to this data.
         
@@ -1048,8 +1082,8 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             this data are merged.
             if ``depth == -1``, all children (including all grandchildren) are merged.
             The default is -1.
-        keep_unmatched : Iterable, optional
-            A list of names of `astrotable.table.Data` objects (you can check the names with e.g. `data.name`).
+        keep_unmatched : Iterable or True, optional
+            A list of names of `pyttop.table.Data` objects (you can check the names with e.g. `data.name`).
             A record (row) of THIS data is kept even if a dataset in the above list cannot be matched to this data.
             To set ``keep_unmatched`` for all data, pass ``keep_unmatched=True``.
             The default is [] (which means that only those that can be matched to each child data of this data are kept).
@@ -1066,9 +1100,16 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             If both ``merge_columns`` and ``ignore_columns`` are specified for a field, 
             the columns IN ``merge_columns`` AND NOT IN ``ignore_columns`` are merged.
             The default is {}.
+        innames : dict, optional
+            A dict like ``{data_name: rename_name}``.
+            This is used to generate unique output column names in case of conflicts (i.e., same column names in different data objects).
+            By default, columns will be renamed as '{column_name}_{data_name}'.
+            If ``data_name`` is included in ``innames``, the corresponding '{column_name}_{rename_name}' will be used instead.
+            This can be used to avoid long column names.
+            The default is {}.
         outname : str, optional
             The name of the merged data. 
-            If not given, will be automatically generated from the names of data that are merged.
+            If not given, this will be automatically generated from the names of data that are merged.
             The default is None.
         keep_subsets : bool, optional
             Whether the subsets of the data are kept and merged. The default is False.
@@ -1081,8 +1122,8 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
 
         Returns
         -------
-        matched_data : ``astrotable.table.Data``
-            An ``astrotable.table.Data`` object containing the merged catalog.
+        matched_data : ``pyttop.table.Data``
+            An ``pyttop.table.Data`` object containing the merged catalog.
 
         Notes
         -----
@@ -1128,7 +1169,9 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             raise ValueError(f"cannot include base data '{self.name}' in `keep_unmatched`")
         for matchinfo in merged_matchinfo:
             if matchinfo.data1.name in keep_unmatched and matchinfo.has_child:
-                raise MergeError(f"cannot include data '{matchinfo.data1.name}' in `keep_unmatched`, because {matchinfo.has_child} is/are matched through the intermediary '{matchinfo.data1.name}'")
+                msg = (f"cannot include data '{matchinfo.data1.name}' in `keep_unmatched`, "
+                f"because {matchinfo.has_child} is/are matched through the intermediary '{matchinfo.data1.name}'")
+                raise MergeError(msg)
         
         ## get matched indices and handle metadata
         for matchinfo in merged_matchinfo:
@@ -1149,7 +1192,8 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
                 data_metas[data1.name] = data1.meta
                 
         if outname is None:
-            outname = 'match_' + '_'.join(data_names)
+            # outname = 'match_' + '_'.join(data_names)
+            outname = f'({data_names[0]}).MATCH({", ".join(data_names[1:])})'
             
         if unnamed_count > 0 and verbose:
             print(f'found no names for {unnamed_count} sets of data, automatically named with numbers.')
@@ -1226,12 +1270,19 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         tables_to_be_matched = [data] + data1_matched_tables
         for t in tables_to_be_matched:
             t.meta.clear() # handle meta by myself, not by astropy
-        matched_table = hstack(tables_to_be_matched, table_names=data_names)
+        
+        assert not find_dup(data_names)
+        data_renames = [innames[n] if n in innames else n for n in data_names]
+        if find_dup(data_renames):
+            msg = f'duplication in names caused by `innames`: {find_dup(data_renames)}'
+            raise ValueError(msg)
+        matched_table = hstack(tables_to_be_matched, table_names=data_renames)
         matched_data = Data(matched_table, name=outname)
         matched_data.meta['path'] = '(merged data)'
         
         # merge subsets
         if keep_subsets:
+            # TODO: use data_renames rather than data_names ?
             merged_subset_groups = Data._merge_subset_groups(data_subset_groups, data_names)
             for groupname, group in merged_subset_groups.items():
                 for subsetname, subset in group.items():
@@ -1327,7 +1378,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
     def match_merge(self, data1, matcher, keep_unmatched=[], merge_columns={}, ignore_columns={}, outname=None, verbose=True):
         '''
         Match this data with ``data1`` and immediately merge everything that can be matched to this data.
-        See ``help(astrotable.table.Data.match)`` and ``help(astrotable.table.Data.merge)`` for more information.
+        See ``help(pyttop.table.Data.match)`` and ``help(pyttop.table.Data.merge)`` for more information.
         '''
         self.match(data1=data1, matcher=matcher, verbose=verbose)
         return self.merge(keep_unmatched=keep_unmatched, merge_columns=merge_columns, ignore_columns=ignore_columns, outname=outname, verbose=verbose)
@@ -1457,7 +1508,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         print('---------------')
     
     #### operation
-    def apply(self, func, processes=None, args=(), **kwargs):
+    def apply(self, func, processes=None, args=(), progress_bar=False, **kwargs):
         '''
         Apply function ``func`` to each row of the Table (``data.t``) to get a new column.
         This operation is not vectorized.
@@ -1475,9 +1526,14 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         processes : None or int
             if int (>0) is given, this specifies the number of processes used to get the results.
             if -1 is given, will automatically use all available cpu cores.
-            if None, multiprocess will not be used.
+            if None, multiprocessing will not be enabled.
+            The default is None.
         args : Iterable, optional
-            Additional arguments to be passed to func. The default is ().
+            Additional arguments to be passed to func. 
+            The default is ().
+        progress_bar : bool, optional
+            Only relevant when multiprocessing is not enabled. If set to True, a progress bar will be shown.
+            The default is False.
         **kwargs :
             Additional keyword arguments to be passed to func (not supported for multiprocessing).
 
@@ -1485,11 +1541,14 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         -------
         list
             Result of applying ``func`` to each row.
-
         '''
         if processes is None:
             result = []
-            for row in self.t:
+            if progress_bar and has_tqdm:
+                rows = tqdm(self.t, total=len(self))
+            else:
+                rows = self.t
+            for row in rows:
                 result.append(func(row, *args, **kwargs))
         elif type(processes) is int:
             if kwargs:
@@ -1693,6 +1752,15 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
     
     #### subsets
     
+    def _gen_subset_all(self):
+        # this is called in __init__() and clear_subsets().
+        # this means that it is re-evaluated when clearing subsets, in case len(self) changes.
+        subset_all = Subset(np.ones(len(self)).astype(bool), name='all', expression='all', label='All') # subset named "all"
+        # subset_all.data_name = self.name
+        subset_all._data = self
+        return subset_all
+        
+    
     def add_subsets(self, *subsets, group=None, listalways=False, verbose=True):
         '''
         Add subsets to a subset group.
@@ -1706,9 +1774,9 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
 
         Parameters
         ----------
-        *subsets : ``astrotable.table.Subset``
+        *subsets : ``pyttop.table.Subset``
             The subsets to be added to this group.
-            See ``help(astrotable.table.Subset)`` for more information.
+            See ``help(pyttop.table.Subset)`` for more information.
         group : str, optional
             The name of the subset group. If not specified, the default subset group will be used.
         listalways : bool, optional
@@ -1856,10 +1924,10 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         if group in (None, 'all'): # clear all groups
             # print('INFO: subsets reset to default.')
             self.subset_groups = {
-                'default': {'all': self.subset_all}
+                'default': {'all': self._gen_subset_all()}
                 }
         elif group in ('default',): # clear default group
-            self.subset_groups['default'] = {'all': self.subset_all}
+            self.subset_groups['default'] = {'all': self._gen_subset_all()}
         elif group in self.subset_groups.keys(): # clear a certain group 
             del self.subset_groups[group]
         elif group in ['$unmasked']: # trying to clear a special group
@@ -1869,62 +1937,66 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
     
     def get_subsets(self, path=None, name=None, group=None, listalways=False, force=False):
         '''
-        Get a subset (or several subsets) given the subset groups, subset names 
-        or paths (i.e. ``'<group_name>/<subset_name>'``)
-        Different from the ``subset_data`` method, which returns the ``Subset`` objects.
+        Retrieve one or more subsets by specifying a group name, subset name(s), 
+        or path(s) formatted as ``'<group_name>/<subset_name>'``.
         
-        Note that a special group (and the subsets in it) is virtual (it does not really "exist"). 
-        Subsets from special groups (including '$unmasked') can only be retrieved with its path
-        (e.g. ``'$unmasked/<column name>'``). Otherwise, a GroupNotFoundError will be raised.
+        If no arguments are provided, this method returns all subsets organized by group and subset names, 
+        accessible as a nested dictionary::
+            >>> subsets = data.get_subsets()
+            >>> mysubset = subsets['group_name']['subset_name']
+        
+        Note that a special group (and the subsets in it) is virtual (and does not actually exist). 
+        Subsets from special groups (including '$unmasked') can only be retrieved using their paths
+        (e.g., ``'$unmasked/<column name>'``). Otherwise, a `GroupNotFoundError` will be raised.
 
         Parameters
         ----------
         path : str or list of str, optional
             The path or a list of paths.
-            If this is given, arguments ``name`` and ``group`` are ignored.
-            If this argument itself is a ``Subset`` object, this object itself is returned.
+            If provided, the ``name`` and ``group`` arguments are ignored.
+            If a ``Subset`` object is given, that object itself is returned. 
             The default is None.
         name : str or list of str, optional
-            The names of subsets, or a list of names. 
-            The default is all subsets in the specified group.
+            The names of subsets or a list of names. 
+            Defaults to all subsets in the specified group.
         group : str, optional
-            The name of the group. The default is the default group.
+            The name of the group. Defaults to the default group.
         listalways : bool, optional
-            If True, always returns list of subsets (even if len(list) == 1).
+            If True, always returns a list of subsets (even if the list contains only one subset).
             The default is False.
         force : bool, optional
             Relevant only when ``path`` is a ``Subset`` object. 
             If this ``Subset`` object is not a subset of this data, an exception will be raised.
-            Setting ``force`` to True will force the operation to proceed without an exception. 
+            Setting ``force`` to True will bypass this exception. 
             Default is False.
 
         Returns
         -------
-        ``astrotable.table.Subset`` or list of ``astrotable.table.Subset``
-            The subset or list of subsets specified.
+        ``pyttop.table.Subset`` or list of ``pyttop.table.Subset``
+            The specified subset or list of subsets.
             
         Special subsets (groups)
         ------------------------
-        A special subset group is a virtual group that do not actually "exists".
-        This is used to create a (new) subset as if retrieving an existing subset of
-        the data. That means that these (virtual) subsets are 
-        only created when ``get_subsets()`` is called to "retrieve" it, and it is not actually
-        added to the data. If you would like to make it a "normal" subset stored in
-        the ``astrotable.table.Data`` instance, you can use::
+        A special subset group is a virtual group that does not actually exist.
+        It is used to create a (new) subset as if retrieving an existing subset from
+        the data. 
+        These virtual subsets are only created when ``get_subsets()`` 
+        is called and are not added to the data. To store a virtual subset as a "normal" subset in the 
+        ``pyttop.table.Data`` instance, use the following::
             data.add_subsets(
                 data.get_subsets('<path to the special subset>'),
                 )
         
-        Recognized special subsets are listed below:
+        Recognized special subsets include:
         
         - ``$unmasked``. This subset group contains virtual subsets indicating whether the values in
-          a certain column is not masked (i.e., a subset in this group contains rows where the value 
+          a specified column are not masked (i.e., a subset in this group contains rows where the value 
           for the specified column is not masked). 
-          To get such a subset, simply use::
+          To retrieve such a subset, use::
               data.get_subsets('$unmasked/<column name>')
             
-          Note that a new subset is created whenever ``get_subsets()`` is called; 
-          `the old subsets never change even when the mask of the column is changed`. For example::
+          Note that a new subset is created each time ``get_subsets()`` is called to retrieve such a subset. 
+          The old subsets remain unchanged even if the column's mask changes. For example::
               subset0 = data.get_subsets('$unmasked/col1')
               # changing the mask of column 'col1'
               subset1 = data.get_subsets('$unmasked/col1')
@@ -1933,14 +2005,20 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         
         Examples
         --------
-        
+        Under construction
 
         '''
         # (i.e. a special subset group and the virtual subsets therein 
-        # is never remembered by a ``astrotable.table.Data`` instance)
+        # is never remembered by a ``pyttop.table.Data`` instance)
+
+        if path is None and name is None and group is None:
+            return self.subsets()
         
+        return self._get_subsets(path=path, name=name, group=group, listalways=listalways, force=force)
+
+    def _get_subsets(self, path=None, name=None, group=None, listalways=False, force=False):
+        # see user API get_subsets() 
         autosearch = False # do not search in other groups unless the user inputs ONLY subsets
-        
         if path is not None:
             if group is not None or name is not None:
                 warnings.warn('Since the argument "path" is given, arguments "name"/"group" are ignored.',
@@ -1959,7 +2037,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
                     subsets.append(self._get_subset_from_path(p, autosearch=autosearch))
                 return subsets
             else:
-                raise TypeError('path should be str or Iterable')
+                raise TypeError(f'path should be str or Iterable, got {type(path)}')
         else:
             if group is None: # user inputs ONLY subsets
                 autosearch = True
@@ -1989,7 +2067,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
                 return name
             else:
                 raise TypeError(f'name should be str or Iterable, not {type(name)}')
-                
+    
     def _get_subset_from_path(self, path, autosearch=False):
         # get the subset from path
         # autosearch: search this subset name in other groups if does not found this name in this group
@@ -2140,7 +2218,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         for subset in subsets:
             index = np.array(subset)
             table_subset = self.t[index]
-            new_name = f'{self.name}_SUBS({subset.name})'
+            new_name = f'({self.name}).SUBS({subset.name})'
             subset_data = Data(table_subset, name=new_name)
             
             if not minimal:
@@ -2168,16 +2246,31 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         else:
             assert len(subset_datas) == 1
             return subset_datas[0]
-        
 
-    def subset_data(self, path=None, name=None, group=None):
+    def subset_data(self, 
+                    path=None, name=None, group=None, 
+                    expr=None, verbose=True, **kwargs):
         '''
-        Get a subset (or several subsets) of data given the subset groups, subset names 
-        or paths (i.e. ``'<group_name>/<subset_name>'``).
+        Get a subset (or several subsets) of data by specifying the subset(s)
+        using the name(s) of subset group(s), subset(s), or the full path(s) (i.e. ``'<group_name>/<subset_name>'``).
         This is different from the ``get_subsets`` method, which returns the ``Subset`` objects.
         
         You may also pass a ``Subset`` object or a list of ``Subset`` objects to the ``path`` parameter,
         to directly get the data.
+        
+        For convenience, you can also directly specify an expression::
+            
+            data.subset_data(expr = 'col1 == 1')
+            
+        Which is equivalent to::
+            
+            data.subset_data(data.add_subsets(Subset(expr), group='temp'))
+            
+        This is similar to::
+            
+            data.t[data.t['col1'] == 1]
+            
+        but supports expressions and returns a Data.
 
         Parameters
         ----------
@@ -2190,12 +2283,20 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             The names of subsets, or a list of names. 
             The default is all subsets in the specified group.
         group : str, optional
-            The name of the group. The default is the default group.
-
+            The name of the group. 
+            The default is the default group.
+        expr : str, optional
+            An expression that can be evaluated with ``Data.eval()`` (e.g. ``col1 == 1``).
+            The default is None.
+        verbose : bool, optional
+            Whether print more information or not. 
+            The defualt is True.
+        kwargs : 
+            Arguments passed to ``Subset()`` or ``Data.eval()``.
 
         Returns
         -------
-        ``astrotable.table.Data`` or list of ``astrotable.table.Data``
+        ``pyttop.table.Data`` or list of ``pyttop.table.Data``
             The subset of data or list of subsets of data specified.
             
         Examples
@@ -2203,7 +2304,14 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         
 
         '''
-        subsets = self.get_subsets(path=path, name=name, group=group)
+        if expr is not None:
+            if any((s is not None for s in (path, name, group))):
+                raise ValueError("Supply either an 'expr' argument "
+                                 "or the 'path'/'name'/'group' arguments")
+            subsets = self.add_subsets(Subset(expr, **kwargs), group='temp', verbose=verbose)
+        else: # expr is None
+            subsets = self._get_subsets(path=path, name=name, group=group)
+            
         return self._data_from_subset(subsets)
     
     def subset_summary(self, group=None):
@@ -2254,6 +2362,18 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
                     label=subset.label,
                     ))
         return summary
+    
+    # @property
+    def subsets(self):
+        '''
+        Retrieve subsets organized by group and subset names, accessible like a nested dictionary.
+
+        Example
+        -------
+            >>> subsets = data.subsets()
+            >>> mysubset = subsets['group_name']['subset_name']
+        '''
+        return SummaryDict(self.subset_groups, dict_name=f"subsets of Data '{self.name}'", element_names=['groups', 'subsets'], join_str=': ')
     
     #### plot
     
@@ -2378,7 +2498,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             The global selection [or the path(s) of the selection(s)] for this plot. 
             If not None, only data selected by this argument is plotted.
             Accepted input:
-                - An ``astrotable.table.Subset`` object. Note that logical operations of subsets are supported, e.g. ``subset1 & subset2 | subset3``.
+                - An ``pyttop.table.Subset`` object. Note that logical operations of subsets are supported, e.g. ``subset1 & subset2 | subset3``.
                 - The path to the subset, i.e. ``'groupname/subsetname'``. If group name is 'default', you can directly use 'subsetname'.
                 - A list/tuple/set of paths to the subsets. The global selection will be the logical AND (i.e. the intersection set) of the subsets.
             The default is None.
@@ -2404,7 +2524,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         --------
         One example:
             
-        >>> from astrotable.table import Data
+        >>> from pyttop.table import Data
         >>> data = Data({'col1': [1, 2, 3], 'col2': [1, 4, 9]})
         >>> fig, ax = plt.subplots()
         >>> data.plot(ax.plot, columns=('col1', 'col2'), color='k')
@@ -2426,10 +2546,10 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             ax = plt.gca()
         
         if type(global_selection) in (str, tuple, list, set):
-            global_selection = bitwise_all(self.get_subsets(path=global_selection, listalways=True))       
+            global_selection = bitwise_all(self._get_subsets(path=global_selection, listalways=True))       
 
         subset_names = subsets
-        subsets = self.get_subsets(path=paths, name=subset_names, group=groups)
+        subsets = self._get_subsets(path=paths, name=subset_names, group=groups)
         if type(subsets) is Subset:
             subsets = [subsets]
         
@@ -2560,7 +2680,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
 
         Parameters
         ----------
-        func : str or Callable or ``astrotable.plot.PlotFunction``
+        func : str or Callable or ``pyttop.plot.PlotFunction``
             Name of the ``matplotlib.pyplot`` function used to make plots, e.g. ``'plot'``, ``'scatter'``.
             
             Also accepts custum functions that receives an axis as the only argument, 
@@ -2569,7 +2689,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             
             You can also input your custom plot function ``func`` defined by::
                 
-                from astrotable.plot import plotFunc
+                from pyttop.plot import plotFunc
                 @plotFunc
                 def func(<your inputs>):
                     <make the plot>
@@ -2577,7 +2697,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
                     
             Or::
                 
-                from astrotable.plot import plotFuncAx
+                from pyttop.plot import plotFuncAx
                 @plotFuncAx
                 def func(ax): # input ax axis
                     def plot(<your inputs>):
@@ -2628,10 +2748,10 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
                 - ``arraygroups = ['group1', 'group2']``, where `'group1', 'group2'` consists of 3, 4 subsets respectively. 
                   Then subplots with ``nrow=3, ncol=4`` (3x4) are generated.
             The default is None.
-        global_selection : ``astrotable.table.Subset`` or str or list of str, optional
+        global_selection : ``pyttop.table.Subset`` or str or list of str, optional
             Only consider data in subset ``global_selection``.
             Accepted input:
-                - An ``astrotable.table.Subset`` object. Note that logical operations of subsets are supported, e.g. ``subset1 & subset2 | subset3``.
+                - An ``pyttop.table.Subset`` object. Note that logical operations of subsets are supported, e.g. ``subset1 & subset2 | subset3``.
                 - The path to the subset, i.e. ``'groupname/subsetname'``. If group name is 'default', you can directly use 'subsetname'.
                 - A list/tuple/set of paths to the subsets. The global selection will be the logical AND (i.e. the intersection set) of the subsets.
             The default is None (the whole dataset is considered).
@@ -2713,7 +2833,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             func = plot.plotFuncAuto(func)
 
         if type(global_selection) in (str, tuple, list, set):
-            global_selection = bitwise_all(self.get_subsets(path=global_selection, listalways=True))
+            global_selection = bitwise_all(self._get_subsets(path=global_selection, listalways=True))
 
         # special case for my scatter()
         if type(func) == plot.PlotFunction and type(func.func) == plot.Scatter and 'c' in kwarg_columns and 'barlabel' not in kwargs:
@@ -2736,7 +2856,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             # get subsets for each panel
             if type(arraygroups) is str:
                 arraygroups = [arraygroups]
-            subsets = [self.get_subsets(group=group, listalways=True) for group in arraygroups]
+            subsets = [self._get_subsets(group=group, listalways=True) for group in arraygroups]
             # if global_selection is not None:
             #     subsets = [[subset & global_selection for subset in subseti] for subseti in subsets]
             if len(subsets) >= 3:
@@ -2749,19 +2869,24 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
             # prepare and check consistency with axes
             nrow, ncol = len(subset_array), len(subset_array[0])
             if axes is None:
+                if (autobreak 
+                    and (fig is None or not fig.axes) 
+                    and len(subsets) == 1):
+                    # autobreak is not a comprehensive function
+                    # decide nrow and ncol if autobreak
+                    if len(subsets[0]) in subplot_arrange:
+                        nrow, ncol = subplot_arrange[len(subsets[0])]
+                    else:
+                        pass # nrow, ncol = 1, len(subsets[0]) # TODO: not implemented
+                    
                 if fig is None:
                     figsize = [6.4*(1+.7*(ncol-1)), 4.8*(1+.7*(nrow-1))]
                     fig = plt.figure(figsize=figsize)
                 if fig.axes:
                     axes = fig.axes
                 else: # fig is empty: create axes
-                    if autobreak and len(subsets) == 1: # autobreak is not a comprehensive function
-                        # decide nrow and ncol if autobreak
-                        if len(subsets[0]) in subplot_arrange:
-                            nrow, ncol = subplot_arrange[len(subsets[0])]
-                        else:
-                            pass # nrow, ncol = 1, len(subsets[0]) # TODO: not implemented
                     axes = fig.subplots(nrow, ncol)
+                    
             else:
                 if fig is None:
                     if isinstance(axes, Iterable):
@@ -2817,7 +2942,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         data_to_save=data_to_save,
         table_format=table_format,
         table_ext=table_ext,
-        package_version=astrotable.__version__,
+        package_version=__version__,
         )
     
     # old values before save_meta is saved
@@ -2955,7 +3080,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
 
         Returns
         -------
-        data : ``astrotable.table.Data``
+        data : ``pyttop.table.Data``
         '''
         if format == 'data':
             attrs = {}
@@ -3005,7 +3130,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
                 raise ValueError(f'The file is not a ".data" file. Did you mean "Data(\'{path}\', <...>)"?') from e
             except KeyError as e:
                 ver = f" ({save_meta['package_version']})" if save_meta and 'package_version' in save_meta else ''
-                raise FailedToLoadError(f"Failed to load '{path}': is not a '.data' file or is saved with an older version{ver} of astrotable.") from e
+                raise FailedToLoadError(f"Failed to load '{path}': is not a '.data' file or is saved with an older version{ver} of pyttop.") from e
             except:
                 raise
             dataname = attrs['name'] if 'name' in attrs else None
@@ -3047,7 +3172,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         '''
         Generate a json string for the metadata of this Data.
     
-        The metadata of an ``astrotable.table.Data`` object typically saves the information
+        The metadata of an ``pyttop.table.Data`` object typically saves the information
         on where the data we loaded, how was it merged (if it is a merged catalog), etc.
         It can be retrieved with ``data.meta``.
         This is saved as the metadata of ``data.t``, i.e. ``data.meta is data.t.meta``.
@@ -3110,6 +3235,14 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
     
     def __getitem__(self, item):
         # warnings.warn('Although supported, it is not suggested to access table by directly subscripting Data objects. Use e.g. data.t[index] instead of data[index].')
+        if isinstance(item, Subset):
+            item = np.array(item) # see also: Data.subset_data()
+        if np.ma.is_masked(item) and item.dtype == np.bool_:
+            warnings.warn('got masked boolean array for item access: masked elements filled with False',
+                          stacklevel=2)
+            # Masked boolean array detected. Masked values will be filled with False and not retrieved in the resulting slice.
+            item = item.filled(False) # This makes it similar to Subsets: "Masked elements do NOT belong to this subset"
+        
         try:
             return self.t[item]
         except KeyError as e:
@@ -3132,14 +3265,17 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         if not isinstance(item, str):
             raise NotImplementedError('Currently, we only accept a str as the index. You may consider directly setting the values by `data.t[...] = ...` instead of `data[...] = ...` (WITH CAUTION).')
             
-        new = isinstance(item, str) and item not in self.colnames
+        new = isinstance(item, str) and item not in self.colnames # setting new column
         if new:
+            was_empty = len(self) == 0 # This was an empty table
             self.t[item] = value
             self.t[item].meta['src'] = 'user-added'
             self.t[item].meta['src_detail'] = 'set by user'
             self.t[item].meta['set_by_user'] = True
             self.t[item].description = ''
             self.t[item].unit = ''
+            if was_empty:
+                self.clear_subsets() # reset subsets (so that subset 'all' is re-defined)
         else: # modifying existing column?
             # meta not modified; description and unit cleared
             old_meta = self.t[item].meta
@@ -3180,6 +3316,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
         return self.colnames
     
     #### alternative names and abbreviations
+    
     def df(self, index=None, use_nullable_int=True): # convenient method to get the pandas DataFrame from data
         return self.t.to_pandas(index=index, use_nullable_int=use_nullable_int)
     
@@ -3199,7 +3336,7 @@ Set 'replace=True' to replace the existing match with '{data1.name}'.")
     mm = mskmis = mask_missing
     chkdup = checkdup = check_duplication
     adsub = add_subsets
-    gs = subs = gtsub = get_subsets
+    gs = gtsub = get_subsets
     subdat = subset_data
     ss = subsum = subset_summary
         

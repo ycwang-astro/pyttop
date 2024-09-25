@@ -12,6 +12,8 @@ import os
 from functools import wraps, reduce
 from operator import iand, ior
 
+from typing import Union, Sequence
+
 #%% array/Iterable operation
 
 def find_idx(array, values):
@@ -119,6 +121,70 @@ class objdict(dict):
             del self[name]
         else:
             raise AttributeError("No such attribute: " + name)
+
+class SummaryDict(dict):
+    def __init__(self, *args, dict_name='dict', 
+                 element_names: Union[Sequence[str], str] = None, 
+                 depth: int = None, 
+                 join_str=' with ',
+                 **kwargs):
+        if isinstance(element_names, str):
+            element_names = [element_names]
+        if depth is None:
+            if element_names is not None:
+                depth = len(element_names)
+            else: # depth is None and element_names is None
+                depth = 1
+        if element_names is None:
+            element_names = ['elements']
+        if depth < 0:
+            raise ValueError
+        self.depth = depth
+        self.dict_name = dict_name
+        self.element_names = element_names
+        self.join_str = join_str
+        
+        super().__init__(*args, **kwargs)
+    
+    @staticmethod
+    def _count_elements(d, depth=1, this_depth=1, counts=None, max_depth=10,
+                        # known_ds: list = None
+                        ):
+        if this_depth > max_depth:
+            raise RecursionError(f'max recursion depth exceeded: {max_depth}')
+            
+        if counts is None:
+            counts = [0] * depth # initialize a list of element counts
+            
+        # if known_ds is None:
+        #     known_ds = [d]
+        
+        if not isinstance(d, dict) or this_depth > depth:
+            return counts
+    
+        counts[this_depth - 1] += len(d)
+        
+        for value in d.values():
+            # if value not in known_ds and isinstance(value, dict):
+            #     known_ds.append(value)
+            #     SummaryDict._count_elements(value, depth, this_depth + 1, counts, known_ds)
+            if isinstance(value, dict):
+                SummaryDict._count_elements(value, depth, this_depth + 1, counts, max_depth=max_depth)
+    
+        return counts        
+    
+    def __repr__(self):
+        element_counts = self.__class__._count_elements(
+            self, depth=self.depth)
+        summary_strs = []
+        for count, name in zip(element_counts, self.element_names):
+            if count:
+                summary_strs.append(f'{count} {name}')
+        if summary_strs:
+            summary_str = self.join_str + ', '.join(summary_strs)
+        else:
+            summary_str = ''
+        return f"<{self.dict_name}{summary_str}>"
 
 class DeprecationError(DeprecationWarning):
     pass

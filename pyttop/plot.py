@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from functools import wraps
 from inspect import signature, isfunction
-from astrotable.utils import objdict
+from .utils import objdict
 from collections.abc import Iterable
 from copy import deepcopy
 
@@ -119,7 +119,7 @@ class PlotFunction():
         
     @property
     def __doc__(self): # manually generate doc
-        return self.func_def + '\n\nFunction modified to accomodate astrotable.table.Data. Original documentaion shown below:\n\n' + self.func_doc + '\n\n'
+        return self.func_def + '\n\nFunction modified to accomodate pyttop.table.Data. Original documentaion shown below:\n\n' + self.func_doc + '\n\n'
     
     @property
     def __name__(self):
@@ -294,7 +294,7 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
 #%% wrapper for plot functions
 def plotFuncAx(f):
     '''
-    Makes a function compatible to astrotable.table.Data. 
+    Makes a function compatible to pyttop.table.Data. 
 
     Usage::
         
@@ -308,7 +308,7 @@ def plotFuncAx(f):
 
 def plotFunc(f):
     '''
-    Makes a function compatible to astrotable.table.Data. 
+    Makes a function compatible to pyttop.table.Data. 
 
     Usage::
         
@@ -457,11 +457,13 @@ def hist2d(ax):
     def _hist2d(x, y, *args, **kwargs):
         # since plt.hist2d does not handle masked values, let us consider this here
         # (mask lost in: plt.hist2d -> np.histogram2d -> np.histogramdd -> np.atleast_2d -> call of asanyarray() in np.core.shape_base)
-        mask = np.full(x.shape, False)
-        if np.ma.is_masked(x):
-            mask |= x.mask
-        if np.ma.is_masked(y):
-            mask |= y.mask
+        
+        # mask = np.full(x.shape, False)
+        # if np.ma.is_masked(x):
+        #     mask |= x.mask
+        # if np.ma.is_masked(y):
+        #     mask |= y.mask
+        mask = np.ma.getmaskarray(x) | np.ma.getmaskarray(y)
         x = x[~mask]
         y = y[~mask]
         return ax.hist2d(x, y, *args, **kwargs)
