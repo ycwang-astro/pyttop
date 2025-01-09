@@ -1,7 +1,7 @@
 # pyttop
 Python Tools for Table Operations and Plotting (PyTTOP) is a Python package.
 
-Details and documentation are in progress.
+Details and [documentation](https://pyttop-docs.readthedocs.io/) are in progress.
 
 ## Installation
 
