@@ -13,6 +13,7 @@ from inspect import signature, isfunction
 from .utils import objdict
 from collections.abc import Iterable
 from copy import deepcopy
+import matplotlib.colors as mcolors
 
 Axes = matplotlib.axes.Axes
 
@@ -27,7 +28,7 @@ DEFAULT_CONFIG = {
             # returns dict like {'xlabel': xlabel, ...}
     }
 
-#%% Class
+#%% fundamental classes
 class PlotFunction():
     def __init__(self, func, input_ax=True):
         self.func = func
@@ -474,3 +475,67 @@ def errorbar(ax):
     return ax.errorbar
 
 annotate = plotFunc(_annotate)
+
+#%% table.Data mixins
+defaults = {
+    # default values for PlotMethodsMixin method parameters
+    'hist': {
+        'histtype': 'step',
+        'lw': 1.3,
+        },
+    }
+
+# def colname_kwargs(*argnames):
+#     def decorator(func):
+#         @wraps(func)
+#         def wrapper(*args, **kwargs):
+            
+#             pass
+#         return wrapper
+#     return decorator
+
+class PlotMethodsMixin():
+    @staticmethod
+    def _process_colname_kwargs(keys, locals, argkeys=None):
+        # argkeys: these will be passed as positional arguments
+        if argkeys is None:
+            argkeys = []
+        kwargs = locals['kwargs']
+        if 'kwcols' not in kwargs:
+            kwargs['kwcols'] = {}
+        if 'cols' not in kwargs:
+            kwargs['cols'] = []
+            
+        for key in keys:
+            value = locals[key]
+            if isinstance(value, str): # regarded as a column name
+                if key in argkeys:
+                    kwargs['cols'].append(value)
+                else:
+                    kwargs['kwcols'][key] = value
+            else:
+                kwargs[key] = value
+        return kwargs
+    
+    # @wraps(plt.plot)
+    def lplot(self, *args, **kwargs):
+        # an real counterpart of plt.plot may be difficult to implement
+        raise NotImplementedError()
+    
+    # @wraps(plt.scatter)
+    def scatter(self, x, y, s=None, c=None, **kwargs):
+        # TODO: docstring
+        if mcolors.is_color_like(c): # this seems to be a color string
+            c = (mcolors.to_rgba(c),)
+        self.__class__._process_colname_kwargs(
+            ['x', 'y', 's', 'c'], locals(), argkeys=['x', 'y'])
+        return self.plots('scatter', **kwargs)
+    
+    # @wraps(plt.hist)
+    def hist(self, x, weights=None, **kwargs):
+        # TODO: docstring
+        kwargs = defaults['hist'] | kwargs
+        self.__class__._process_colname_kwargs(
+            ['x', 'weights'], locals(), argkeys=['x'])
+        return self.plots('hist', **kwargs)
+    

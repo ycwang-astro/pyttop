@@ -7,7 +7,7 @@ Created on Sat Jul 30 2022
 A package that provides simple tools for table operation.
 
 
-Copyright (C) 2022-2024  Yu-Chen Wang
+Copyright (C) 2022-2025  Yu-Chen Wang
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -24,3 +24,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 __version__ = '0.4.0-dev.1'
+
+from .sampledata import get_example

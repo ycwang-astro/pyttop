@@ -586,7 +586,7 @@ class Subset():
         self.__dict__.update(state)
         
 
-class Data():
+class Data(plot.PlotMethodsMixin):
     '''
     A class to store, manipulate and visualize data tables.
     
@@ -611,6 +611,10 @@ class Data():
         '''
             # Keyword arguments passed to ``astropy.table.Table.read()`` (if a str is passed to argument `data`),
             # or ``astropy.table.Table()`` (if applicable).
+        
+        if isinstance(data, self.__class__):
+            return data
+        
         if type(data) is str and 'format' in kwargs and kwargs['format'] in ['data', 'pkl']: # should use Data.load
             raise ValueError(f"to load data file saved with Data.save, use Data.load('{data}', format='{kwargs['format']}')")
         
@@ -1207,6 +1211,7 @@ class Data():
         ## cut data and subsets (if needed) ##
         # cut myself
         data = self.t[matched] # data is not self.t # even if `matched` is all True
+        # TODO: make Data object itself valid as, e.g., merge_columns keys. (e.g., `self in merge_columns`)
         if self.name in merge_columns:
             data.keep_columns(merge_columns[self.name])
         if self.name in ignore_columns:
@@ -1750,6 +1755,9 @@ class Data():
         else:
             raise ValueError(f"Unrecognized action '{action}'.")
     
+    def sort(self, *args, **kwargs):
+        raise NotImplementedError('operation not supported yet; sort a table BEFORE converting it to a `Data` object')
+    
     #### subsets
     
     def _gen_subset_all(self):
@@ -1854,7 +1862,10 @@ class Data():
         if group_name in self.subset_groups and not overwrite:
             raise ValueError(f'A subset group with name "{group_name}" already exists.')
         
-        values = np.unique(self.t[column])
+        col = self.t[column]
+        if isinstance(col, np.ma.MaskedArray):
+            col = col[~col.mask]
+        values = np.unique(col)
         if len(values) > 10:
             warnings.warn(f'A total of {len(values)} unique values found in column "{column}". This will result in a subset group with a lot of subsets.')
         
@@ -2665,7 +2676,13 @@ class Data():
     
     @keyword_alias('deprecated', columns='cols', kwarg_columns='kwcols') # deprecated old names
     @keyword_alias('accepted', group='plotgroups', groups='plotgroups', paths='plotpaths', subsets='plotsubsets', ax='axes') # make plot() arguments acceptable here 
-    def plots(self, func, *args, cols=None, kwcols={}, eval=False, eval_kwargs={}, plotpaths=None, plotsubsets=None, plotgroups=None, arraygroups=None, global_selection=None, share_ax=False, autobreak=False, autolabel=True, ax_callback=None, returns='fig', verbose=True, axes=None, fig=None, iter_kwargs={}, **kwargs):
+    def plots(self, func, *args, cols=None, kwcols={}, eval=False, eval_kwargs={}, 
+              plotpaths=None, plotsubsets=None, plotgroups=None, 
+              arraygroups=None, global_selection=None, 
+              share_ax=False, autobreak=False, autolabel=True, ax_callback=None, 
+              returns='fig', verbose=True, 
+              axes=None, fig=None, 
+              iter_kwargs={}, **kwargs):
         '''
         Make a plot given the function ``func`` used for plotting.
         
@@ -3223,6 +3240,15 @@ class Data():
             with open(save_path, 'w', encoding='utf8') as f:
                 f.write(meta)
         return meta
+    
+    def print_meta(self):
+        print(self.metaJson())
+        
+    def clear_meta(self, in_place=False):
+        raise NotImplementedError()
+    
+    def copy(self):
+        raise NotImplementedError()
     
     ## below are magic methods
     
