@@ -41,7 +41,9 @@ Issues = "https://github.com/ycwang-astro/pyttop/issues"
 
 
 [tool.setuptools]
-packages = ["pyttop"]
+
+[tool.setuptools.packages.find]
+include = ["pyttop", "pyttop.*"]
 
 [tool.setuptools.package-data]
 
