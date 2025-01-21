@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyttop"
+dynamic = ["version"]
+dependencies = [
+    "astropy",
+    "matplotlib",
+    "numpy",
+]
+requires-python = ">= 3.8"
+
+authors = [
+    {name="Yu-Chen Wang"},
+]
+description = "Python Tools for Table Operations and Plotting"
+readme = "README.md"
+license = {text = "GPL-3.0-only"}
+# license-files = ["LICEN[CS]E*", "AUTHORS.md"]
+
+keywords = ["table", "table operation", "catalog matching", "catalog merging", "table matching", "table merging", "plot", "scientific plot", "row subset"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Intended Audience :: Science/Research",
+]
+
+[project.optional-dependencies]
+
+[project.scripts]
+
+[project.urls]
+# Homepage = "https://github.com/ycwang-astro/pyttop/"
+Documentation = "https://pyttop.readthedocs.io/"
+Repository = "https://github.com/ycwang-astro/pyttop.git"
+Issues = "https://github.com/ycwang-astro/pyttop/issues"
+# Changelog = ""
+
+
+[tool.setuptools]
+packages = ["pyttop"]
+
+[tool.setuptools.package-data]
+
+[tool.setuptools.dynamic]
+version = {attr = "pyttop.__version__"}
