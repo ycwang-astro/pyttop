@@ -105,8 +105,6 @@ def bitwise_or(iterable):
 
 # Modified dictionary. If each value has the same length, it is similar to pandas.DataFrame, but simpler.
 class objdict(dict):
-    # author: Senko Rašić
-    # from https://goodcode.io/articles/python-dict-object/?msclkid=daff3822c47111eca4f572e5716ccae3
     def __getattr__(self, name):
         if name in self:
             return self[name]
