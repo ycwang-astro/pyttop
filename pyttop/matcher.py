@@ -19,30 +19,32 @@ class UnsafeMatchingWarning(Warning):
     pass
     # def __init__(self, data, **kwargs)
 
+
 class DuplicationWarning(UnsafeMatchingWarning):
     pass
 
-class ExactMatcher():
-    def __init__(self, value, value1=None):
-        '''
-        Used to match `pyttop.table.Data` objects `data1` to `data`.
-        Match records with exact values.
-        This should be passed to method `data.match()`.
-        See `help(data.match)`.
 
-        Parameters
-        ----------
-        value : str or Iterable
-            Specify values for `data` used to match catalogs. Possible inputs are:
-            - str, name of the field used for matching.
-            - Iterable, values for `data`. `len(value)` should be equal to `len(data)`.
-        value1 : str or Iterable, optional
-            Specify values for `data1` used to match catalogs. Possible inputs are:
-            - str, name of the field used for matching.
-            - Iterable, values for `data1`. `len(value1)` should be equal to `len(data1)`.
-            
-            If not given and ``value`` is a string, ``value1`` set to the same as ``value``.
-        '''
+class ExactMatcher():
+    '''
+    Used to match `pyttop.table.Data` objects `data1` to `data`.
+    Match records with exact values.
+    This should be passed to method `data.match()`.
+    See `help(data.match)`.
+
+    Parameters
+    ----------
+    value : str or Iterable
+        Specify values for `data` used to match catalogs. Possible inputs are:
+        - str, name of the field used for matching.
+        - Iterable, values for `data`. `len(value)` should be equal to `len(data)`.
+    value1 : str or Iterable, optional
+        Specify values for `data1` used to match catalogs. Possible inputs are:
+        - str, name of the field used for matching.
+        - Iterable, values for `data1`. `len(value1)` should be equal to `len(data1)`.
+        
+        If not given and ``value`` is a string, ``value1`` set to the same as ``value``.
+    '''
+    def __init__(self, value, value1=None):
         self.value = value
         self.value1 = value1
         
@@ -117,44 +119,44 @@ class ExactMatcher():
 
 
 class SkyMatcher():
-    def __init__(self, thres=1, coord=None, coord1=None, unit=u.deg, unit1=u.deg):
-        '''
-        Used to match `pyttop.table.Data` objects `data1` to `data`.
-        Match records with nearest coordinates.
-        This should be passed to method `data.match()`.
-        See `help(data.match)`.
+    '''
+    Used to match `pyttop.table.Data` objects `data1` to `data`.
+    Match records with nearest coordinates.
+    This should be passed to method `data.match()`.
+    See `help(data.match)`.
 
-        Parameters
-        ----------
-        thres : number, optional
-            Threshold in arcsec. The default is 1.
-        coord : str or astropy.coordinates.SkyCoord, optional
-            Specify coordinate for the base data. Possible inputs are:
-            - astropy.coordinates.SkyCoord (recommended), the coordinate object.
-            - str, should be like 'RA-DEC', which specifies the column name for RA and Dec.
-            - None (default), will try ['ra', 'RA'] and ['DEC', 'Dec', 'dec'].
-            The default is None.
-        coord1 : str or astropy.coordinates.SkyCoord, optional
-            Specify coordinate for the matched data. Possible inputs are:
-            - astropy.coordinates.SkyCoord (recommended), the coordinate object.
-            - str, should be like 'RA-DEC', which specifies the column name for RA and Dec.
-            - None (default), will try ['ra', 'RA'] and ['DEC', 'Dec', 'dec'].
-            The default is None.
-        unit : astropy.units.core.Unit or list/tuple/array of it
-            If astropy.coordinates.SkyCoord object is not given for coord, 
-            this is used to specify the unit of coord.
-            The default is astropy.units.deg.
-        unit1 : astropy.units.core.Unit or list/tuple/array of it
-            If astropy.coordinates.SkyCoord object is not given for coord1, 
-            this is used to specify the unit of coord1.
-            The default is astropy.units.deg.
-           
-        Notes
-        -----
-        The data columns for RA, Dec may already have units (e.g. ``data.t['RA'].unit``).
-        In this case, any input for ``unit`` or ``unit1`` is ignored, and the units recorded
-        in the columns are used.
-        '''
+    Parameters
+    ----------
+    thres : number, optional
+        Threshold in arcsec. The default is 1.
+    coord : str or astropy.coordinates.SkyCoord, optional
+        Specify coordinate for the base data. Possible inputs are:
+        - astropy.coordinates.SkyCoord (recommended), the coordinate object.
+        - str, should be like 'RA-DEC', which specifies the column name for RA and Dec.
+        - None (default), will try ['ra', 'RA'] and ['DEC', 'Dec', 'dec'].
+        The default is None.
+    coord1 : str or astropy.coordinates.SkyCoord, optional
+        Specify coordinate for the matched data. Possible inputs are:
+        - astropy.coordinates.SkyCoord (recommended), the coordinate object.
+        - str, should be like 'RA-DEC', which specifies the column name for RA and Dec.
+        - None (default), will try ['ra', 'RA'] and ['DEC', 'Dec', 'dec'].
+        The default is None.
+    unit : astropy.units.core.Unit or list/tuple/array of it
+        If astropy.coordinates.SkyCoord object is not given for coord, 
+        this is used to specify the unit of coord.
+        The default is astropy.units.deg.
+    unit1 : astropy.units.core.Unit or list/tuple/array of it
+        If astropy.coordinates.SkyCoord object is not given for coord1, 
+        this is used to specify the unit of coord1.
+        The default is astropy.units.deg.
+       
+    Notes
+    -----
+    The data columns for RA, Dec may already have units (e.g. ``data.t['RA'].unit``).
+    In this case, any input for ``unit`` or ``unit1`` is ignored, and the units recorded
+    in the columns are used.
+    '''
+    def __init__(self, thres=1, coord=None, coord1=None, unit=u.deg, unit1=u.deg):
         self.thres = thres
         self.coord = coord
         self.coord1 = coord1
@@ -279,14 +281,15 @@ class SkyMatcher():
         return f'<SkyMatcher with thres={self.thres}>'
 
 class IdentityMatcher():
+    '''
+    Used to match ``pyttop.table.Data`` objects ``data1`` to ``data``.
+    Directly match records row by row, i.e. row #1 matched to row #1, row #2 matched to row #2, etc.
+    Only possible if ``len(data1) == len(data)``.
+    This should be passed to method `data.match()`.
+    See ``help(data.match)``.
+    '''
     def __init__(self):
-        '''
-        Used to match ``pyttop.table.Data`` objects ``data1`` to ``data``.
-        Directly match records row by row, i.e. row #1 matched to row #1, row #2 matched to row #2, etc.
-        Only possible if ``len(data1) == len(data)``.
-        This should be passed to method `data.match()`.
-        See ``help(data.match)``.
-        '''
+        pass
     
     def get_values(self, data, data1, verbose=True):
         if len(data) != len(data1):

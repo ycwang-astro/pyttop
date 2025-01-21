@@ -151,80 +151,81 @@ class Subset():
         s2 = data.add_subsets(Subset(<...>, name='subset')) # this replaces the original subset at 'default/subset'
         s1 in data, s2 in data # (False, True)
     
-    Notes for developers
-    --------------------
-    Currently, the '&', '|', '~' operations can only be performed if selection is an boolean array,
-    or ``Subset.eval_`` is called. (This is always called when a subset is defined in ``data.add_subsets()``.)
-    Operation before evalutaion may be supported in the future.
+    Parameters
+    ----------
+    selection : callable (e.g. function), iterable (e.g. array-like) or string
+        If it is iterable, it should be a boolean array indicating whether each row is included in this subset.
+        It should have a shape of ``(len(data),)`` where ``data`` is an ``pyttop.table.Data`` instance.  
+    
+        If it is callable, it should be defined like below::
+        
+            def selection(table): # input: astropy.table.Table object
+                <...>
+                return arr # boolean array 
+                           # whether each row is included in subset 
+        
+        If it is a string, should be an expression that can be evaluated by ``Data.eval``, e.g.
+        ``'(column1 > 0) & (column2 < 1)'``. Refer to ``help(Data.eval)`` for details.
+    name : str, optional
+        The name of the subset. The default is None.
+    expression : str, optional
+        The expression [e.g. '(col1 > 0) & (col2 == "A")'] used to recognize the conditions. 
+        The default is None.
+    label : str, optional
+        The label used in figures. 
+        The default is None.
+    kwargs : 
+        Arguments passed to ``Data.eval()`` if ``selection`` is evaluated as an expression.
+        
+    Notes
+    -----
+    The inputs of ``__init__()`` will be attributes of the object.
+    By executing the ``eval_`` method, an ``pyttop.table.Data`` object ``data`` is inputted, and:
+        - The attribute ``selection`` will be converted to a boolean array;
+        - The attribute ``name`` will be set to the default name if it is None;
+        - The attribute ``expression`` will be automatically set if it is None;
+        - The attribute ``label`` will be set to ``name`` if it is None; strings will be replaced 
+          according to the mapping of dict ``data.col_labels``.
+          
+    If the input/evaluation of ``selection`` is/results in a masked (boolean) array, the masked elements 
+    are filled with False (which means that they are NOT included in this subset by definition).
+    This often happens when ``selection`` is calculated from a masked column of the table.
+    The final ``selection`` after executing the ``eval_`` method is never a masked array.
+    
+    **Caveat**. Subsets constructed with ``expr`` and ``~expr`` are NOT necessarily complements of each other!
+    See the below example::
+        
+        >>> from pyttop.table import Data, Subset
+        >>> d = Data(name='test')
+        >>> d['x'] = [-1, 1, -99]
+        >>> d.mask_missing(missval=-99)
+        [mask missing] col 'x': 1/3 (33.33%) masked (value: -99).
+        >>> s1 = d.add_subsets(Subset('x < 0'))
+        >>> s2 = d.add_subsets(Subset('~(x < 0)'))
+        >>> s21 = d.add_subsets(Subset('x >= 0'))
+        >>> s1, s1.selection
+        (<Subset 'x < 0' of Data 'test' (1/3)>, array([ True, False, False]))
+        >>> s2, s2.selection
+        (<Subset '~(x < 0)' of Data 'test' (1/3)>, array([False,  True, False]))
+        >>> s21, s21.selection
+        (<Subset 'x >= 0' of Data 'test' (1/3)>, array([False,  True, False]))
+        >>> (~s1), (~s1).selection
+        (<Subset 'NOT(x < 0)' of Data 'test' (2/3)>, array([False,  True,  True]))
+        >>> (~s2), (~s2).selection
+        (<Subset 'NOT(~(x < 0))' of Data 'test' (2/3)>, array([ True, False,  True]))
+        >>> (~s21), (~s21).selection
+        (<Subset 'NOT(x >= 0)' of Data 'test' (2/3)>, array([ True, False,  True]))
+        
     '''
+    # Notes for developers
+    # --------------------
+    # Currently, the '&', '|', '~' operations can only be performed if selection is an boolean array,
+    # or ``Subset.eval_`` is called. (This is always called when a subset is defined in ``data.add_subsets()``.)
+    # Operation before evalutaion may be supported in the future.
     def __init__(self, selection, name=None, expression=None, label=None, **kwargs):
         '''
         Specify a subset of ``Data``.
 
-        Parameters
-        ----------
-        selection : callable (e.g. function), iterable (e.g. array-like) or string
-            If it is iterable, it should be a boolean array indicating whether each row is included in this subset.
-            It should have a shape of ``(len(data),)`` where ``data`` is an ``pyttop.table.Data`` instance.  
-        
-            If it is callable, it should be defined like below::
-            
-                def selection(table): # input: astropy.table.Table object
-                    <...>
-                    return arr # boolean array 
-                               # whether each row is included in subset 
-            
-            If it is a string, should be an expression that can be evaluated by ``Data.eval``, e.g.
-            ``'(column1 > 0) & (column2 < 1)'``. Refer to ``help(Data.eval)`` for details.
-        name : str, optional
-            The name of the subset. The default is None.
-        expression : str, optional
-            The expression [e.g. '(col1 > 0) & (col2 == "A")'] used to recognize the conditions. 
-            The default is None.
-        label : str, optional
-            The label used in figures. 
-            The default is None.
-        kwargs : 
-            Arguments passed to ``Data.eval()`` if ``selection`` is evaluated as an expression.
-            
-        Notes
-        -----
-        The inputs of ``__init__()`` will be attributes of the object.
-        By executing the ``eval_`` method, an ``pyttop.table.Data`` object ``data`` is inputted, and:
-            - The attribute ``selection`` will be converted to a boolean array;
-            - The attribute ``name`` will be set to the default name if it is None;
-            - The attribute ``expression`` will be automatically set if it is None;
-            - The attribute ``label`` will be set to ``name`` if it is None; strings will be replaced 
-              according to the mapping of dict ``data.col_labels``.
-              
-        If the input/evaluation of ``selection`` is/results in a masked (boolean) array, the masked elements 
-        are filled with False (which means that they are NOT included in this subset by definition).
-        This often happens when ``selection`` is calculated from a masked column of the table.
-        The final ``selection`` after executing the ``eval_`` method is never a masked array.
-        
-        **Caveat**. Subsets constructed with ``expr`` and ``~expr`` are NOT necessarily complements of each other!
-        See the below example::
-            >>> from pyttop.table import Data, Subset
-            >>> d = Data(name='test')
-            >>> d['x'] = [-1, 1, -99]
-            >>> d.mask_missing(missval=-99)
-            [mask missing] col 'x': 1/3 (33.33%) masked (value: -99).
-            >>> s1 = d.add_subsets(Subset('x < 0'))
-            >>> s2 = d.add_subsets(Subset('~(x < 0)'))
-            >>> s21 = d.add_subsets(Subset('x >= 0'))
-            >>> s1, s1.selection
-            (<Subset 'x < 0' of Data 'test' (1/3)>, array([ True, False, False]))
-            >>> s2, s2.selection
-            (<Subset '~(x < 0)' of Data 'test' (1/3)>, array([False,  True, False]))
-            >>> s21, s21.selection
-            (<Subset 'x >= 0' of Data 'test' (1/3)>, array([False,  True, False]))
-            >>> (~s1), (~s1).selection
-            (<Subset 'NOT(x < 0)' of Data 'test' (2/3)>, array([False,  True,  True]))
-            >>> (~s2), (~s2).selection
-            (<Subset 'NOT(~(x < 0))' of Data 'test' (2/3)>, array([ True, False,  True]))
-            >>> (~s21), (~s21).selection
-            (<Subset 'NOT(x >= 0)' of Data 'test' (2/3)>, array([ True, False,  True]))
-        
         '''
         if name is not None and '/' in name:
             raise ValueError('"/" not supported in Subset names')
@@ -590,6 +591,15 @@ class Data(plot.PlotMethodsMixin):
     '''
     A class to store, manipulate and visualize data tables.
     
+    Parameters
+    ----------
+    data : str, ``astropy.table.Table``, etc.
+        Path to the data file, an ``astropy.table.Table`` object, or anything that can be initialized as an ``astropy.table.Table`` object.
+    name : str, optional
+        The name of this Data object. This name will be used in many cases to distinguish datasets. The default is None.
+    **kwargs : 
+        Keyword arguments passed when initializing an ``astropy.table.Table`` object. 
+
     Notes
     -----
     - The data table of a ``Data`` instance (i.e. ``data.t``) is not expected to be changed since creation. 
@@ -598,16 +608,6 @@ class Data(plot.PlotMethodsMixin):
     '''
     def __init__(self, data=None, name=None, **kwargs):
         '''
-        
-
-        Parameters
-        ----------
-        data : str, ``astropy.table.Table``, etc.
-            Path to the data file, an ``astropy.table.Table`` object, or anything that can be initialized as an ``astropy.table.Table`` object.
-        name : str, optional
-            The name of this Data object. This name will be used in many cases to distinguish datasets. The default is None.
-        **kwargs : 
-            Keyword arguments passed when initializing an ``astropy.table.Table`` object. 
         '''
             # Keyword arguments passed to ``astropy.table.Table.read()`` (if a str is passed to argument `data`),
             # or ``astropy.table.Table()`` (if applicable).
@@ -1276,7 +1276,7 @@ class Data(plot.PlotMethodsMixin):
         for t in tables_to_be_matched:
             t.meta.clear() # handle meta by myself, not by astropy
         
-        assert not find_dup(data_names)
+        assert find_dup(data_names).size == 0
         data_renames = [innames[n] if n in innames else n for n in data_names]
         if find_dup(data_renames):
             msg = f'duplication in names caused by `innames`: {find_dup(data_renames)}'
