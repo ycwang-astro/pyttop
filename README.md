@@ -9,5 +9,9 @@ This package is distributed *solely* under the [GNU General Public License v3.0]
 
 To install this package, run the following command: 
 ```
+pip install pyttop
+```
+If you would like to try the latest development version, you may directly install from the project repository by:
+```
 pip install git+https://github.com/ycwang-astro/pyttop.git
 ```
