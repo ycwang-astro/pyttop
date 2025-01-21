@@ -1,4 +1,6 @@
 # pyttop
+[![PyPI version](https://badge.fury.io/py/pyttop.svg)](https://badge.fury.io/py/pyttop) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14710979.svg)](https://zenodo.org/doi/10.5281/zenodo.14710979)
+
 Python Tools for Table Operations and Plotting (PyTTOP) is a Python package.
 
 See the [documentation](https://pyttop.readthedocs.io/) for details.
