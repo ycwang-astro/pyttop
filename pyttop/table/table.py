@@ -1278,7 +1278,7 @@ class Data(plot.PlotMethodsMixin):
         
         assert find_dup(data_names).size == 0
         data_renames = [innames[n] if n in innames else n for n in data_names]
-        if find_dup(data_renames):
+        if find_dup(data_renames).size > 0:
             msg = f'duplication in names caused by `innames`: {find_dup(data_renames)}'
             raise ValueError(msg)
         matched_table = hstack(tables_to_be_matched, table_names=data_renames)
