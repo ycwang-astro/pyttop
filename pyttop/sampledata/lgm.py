@@ -23,11 +23,10 @@ surnames = [
 ]
 
 class LittleGreenMen(DataGenerator):
+    examplename = 'LGM'
     def __init__(self, N=5000):
         super().__init__()
-        self.examplename = 'LGM'
         self.N = N
-        self.rng = np.random.default_rng(seed=self.seed)
         self.id = self.rng.permutation(self.N)
         # self.ra = self.rng.uniform(0, 24, self.N)
         self.ra = self.rng.uniform(0, 360, self.N)

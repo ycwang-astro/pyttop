@@ -29,6 +29,10 @@ DEFAULT_CONFIG = {
     }
 
 #%% fundamental classes
+# TODO: the implementation of PlotFunction, 
+#       the two supported signatures [func(...) and func(ax)(...)]
+#       and its support in Data.plot, Data.plots
+#       might be improved to make them more elegant.
 class PlotFunction():
     def __init__(self, func, input_ax=True):
         self.func = func
@@ -64,53 +68,61 @@ class PlotFunction():
         if hasattr(self.func, 'config'):
             self.config.update(self.func.config)
     
-    def _call_with_ax(self, ax):
+    def _call_with_ax(self, ax, execute_callback=False):
         if self.input_ax:
             @wraps(self.func(ax))
             def plot(*args, **kwargs):
-                return self.func(ax)(*args, **kwargs)
+                out = self.func(ax)(*args, **kwargs)
+                if execute_callback:
+                    self.ax_callback(ax)
+                return out
         else:
             @wraps(self.func)
             def plot(*args, **kwargs):
                 ca = plt.gca()
                 plt.sca(ax)
                 out = self.func(*args, **kwargs)
+                if execute_callback:
+                    self.ax_callback(ax)
                 plt.sca(ca)
                 return out
         plot.ax_callback = self.ax_callback
         return plot
     
-    def __call__(self, *args, **kwargs): # direct call
-        '''
-        Calling the plot function modified by plotFuncAx or plotFunc. 
-        ''' # For documentation, execute ``<function name>.help()``.
-        
-        # if f is called as f(ax), f(ax=ax):
+    def __call__(self, *args, **kwargs): 
+        # calling it as a standalone function
+        # decide how it is called
+        call_with_ax = False
         if len(args) == 0 and list(kwargs.keys()) == ['ax']: # f called as f(ax=ax)
             ax = kwargs['ax']
             if isinstance(ax, Axes):
-                return self._call_with_ax(ax)
+                call_with_ax = True
         elif len(kwargs) == 0 and len(args) == 1: # f called as f(ax) or f(x)
             ax = args[0]
             if isinstance(ax, Axes):
-                return self._call_with_ax(ax)
+                call_with_ax = True
         
-        # seem that f not called with only one axis as input:
-        ax = plt.gca()
-        out = self._call_with_ax(ax)(*args, **kwargs)
-        self.ax_callback(ax)
-        return out
-    
-    def in_plot(self, *args, **kwargs): # use in Data.plot
-        # do not call ax_callback.
+        # call the plot function, and execute ax_callback
+        if call_with_ax: # f is called as f(ax), f(ax=ax):
+            return self._call_with_ax(ax, execute_callback=True)
+        else:  # f not called with only one axis as input
+            ax = plt.gca()
+            out = self._call_with_ax(ax)(*args, **kwargs)
+            self.ax_callback(ax)
+            return out
+
+    def call_with_ax(self, ax, execute_callback=False):
+        # calling it with f(ax)(...)
+        # ax_callback not executed by default
+        # used in Data.plots
         # plot function may be called several times in one subplot,
         # but ax_callback should be called ONLY ONCE.
+        return self._call_with_ax(ax, execute_callback=execute_callback)
+    
+    def call_without_ax(self, *args, **kwargs): 
         ax = plt.gca()
         return self._call_with_ax(ax)(*args, **kwargs)
         # return self.ax_callback
-    
-    def in_subplot_array(self, ax): # use in Data.subplot_array
-        return self._call_with_ax(ax)
     
     # def help(self):
     #     print(self.func_doc)
@@ -325,7 +337,8 @@ def plotFuncAuto(f):
         return f
     try: # what f(ax)(...) should be like
         # _, _temp_ax = plt.subplots()
-        _f = f(Axes) # TODO (not solved): f may do something when calling this
+        # _f = f(Axes) # TODO (not solved): f may do something when calling this
+        _f = f(None)
         assert callable(_f)
     except:
         return plotFunc(f)
@@ -438,7 +451,7 @@ def _plot_label(labels):
     if len(labels) == 1:
         return {'ylabel': labels[0]} # if only one arg is given, this is y axis rather than x axis
     else:
-        return dict(zip(['xlabel', 'ylabel', 'zlabel'], labels),), 
+        return dict(zip(['xlabel', 'ylabel', 'zlabel'], labels),)
 plot.config['ax_label_kwargs_generator'] = _plot_label
 
 @plotFuncAx

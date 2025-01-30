@@ -11,9 +11,12 @@ import numpy as np
 
 SEED = 42
 
+DEFAULT_NAME = '_main_'
+
 class DataGenerator():
     def __init__(self):
         self.seed = SEED
+        self.rng = np.random.default_rng(seed=self.seed)
     
     def gen_data_from_attr(self, keys, frac=1, seed=None, name=None):
         '''
@@ -66,6 +69,8 @@ class DataGenerator():
                     # and isinstance(kwargs['frac'], (int, float)),
                     )
         except (AttributeError, AssertionError, TypeError, KeyError) as e:
-            raise ValueError(f"dataset '{name}' not found.") from e
-        return self.gen_data_from_attr(**kwargs, name=f'{self.examplename}.{name}')
+            if name == DEFAULT_NAME:
+                raise ValueError("dataset name required") from e
+            raise ValueError(f"dataset '{name}' not found") from e
+        return self.gen_data_from_attr(**kwargs, name=f'{self.examplename}.{name}' if name != DEFAULT_NAME else self.examplename)
 

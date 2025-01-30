@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy.table import Column, Table, hstack
 # from astropy.io import ascii as apascii
-from ..utils import objdict, save_pickle, load_pickle, keyword_alias, bitwise_all, pause_and_warn, find_dup, SummaryDict
+from ..utils import objdict, save_pickle, load_pickle, keyword_alias, bitwise_all, pause_and_warn, find_dup, SummaryDict, create_method_alias
 from .. import plot
 from .. import __version__
 import warnings
@@ -128,7 +128,7 @@ class Subset():
         Subset.by_range(<column name>=<value range>, <...>)
         Subset.by_value(<column name>, <value>)
 
-    See ``help(Subset.__init__)``, ``help(Subset.by_range)`` and ``help(Subset.by_value)`` for more information.
+    See :meth:`~Subset.by_range`` and :meth:`~Subset.by_value`` for more information.
     
     In practice, a subset of ``data`` is usually defined as:
         
@@ -147,6 +147,7 @@ class Subset():
     Note that the name (will be auto-generated if not given) is used as the address of a subset in a ``data``.
     If you add a subset to a certain subset group in which the name is already used by another subset, 
     the original subset will be replaced and no longer recognized as part of that ``data``::
+        
         s1 = data.add_subsets(Subset(<...>, name='subset'))
         s2 = data.add_subsets(Subset(<...>, name='subset')) # this replaces the original subset at 'default/subset'
         s1 in data, s2 in data # (False, True)
@@ -165,7 +166,7 @@ class Subset():
                            # whether each row is included in subset 
         
         If it is a string, should be an expression that can be evaluated by ``Data.eval``, e.g.
-        ``'(column1 > 0) & (column2 < 1)'``. Refer to ``help(Data.eval)`` for details.
+        ``'(column1 > 0) & (column2 < 1)'``. Refer to :meth:`~Data.eval` for details.
     name : str, optional
         The name of the subset. The default is None.
     expression : str, optional
@@ -181,11 +182,12 @@ class Subset():
     -----
     The inputs of ``__init__()`` will be attributes of the object.
     By executing the ``eval_`` method, an ``pyttop.table.Data`` object ``data`` is inputted, and:
-        - The attribute ``selection`` will be converted to a boolean array;
-        - The attribute ``name`` will be set to the default name if it is None;
-        - The attribute ``expression`` will be automatically set if it is None;
-        - The attribute ``label`` will be set to ``name`` if it is None; strings will be replaced 
-          according to the mapping of dict ``data.col_labels``.
+        
+    - The attribute ``selection`` will be converted to a boolean array;
+    - The attribute ``name`` will be set to the default name if it is None;
+    - The attribute ``expression`` will be automatically set if it is None;
+    - The attribute ``label`` will be set to ``name`` if it is None; strings will be replaced 
+      according to the mapping of dict ``data.col_labels``.
           
     If the input/evaluation of ``selection`` is/results in a masked (boolean) array, the masked elements 
     are filled with False (which means that they are NOT included in this subset by definition).
@@ -459,6 +461,7 @@ class Subset():
     def eqs(self, subset):
         '''
         Checks if selections of two subsets are the same. For example::
+            
             if subset1.eqs(subset2):
                 print('same')
 
@@ -599,12 +602,19 @@ class Data(plot.PlotMethodsMixin):
         The name of this Data object. This name will be used in many cases to distinguish datasets. The default is None.
     **kwargs : 
         Keyword arguments passed when initializing an ``astropy.table.Table`` object. 
-
+    
     Notes
     -----
     - The data table of a ``Data`` instance (i.e. ``data.t``) is not expected to be changed since creation. 
       If ``data.t`` is changed, the matching and subset information may be inconsistent with the table.
       Create a new ``Data`` instance instead.
+        
+    Attributes
+    ----------
+    colnames : list
+        A list of column names.
+    shape : tuple
+        (number_of_rows, number_of_columns)
     '''
     def __init__(self, data=None, name=None, **kwargs):
         '''
@@ -685,6 +695,7 @@ class Data(plot.PlotMethodsMixin):
         self.plot_returns = [] # the returns of the last plot
     
     #### properties
+    
     @property
     def colnames(self):
         return self.t.colnames
@@ -705,6 +716,7 @@ class Data(plot.PlotMethodsMixin):
         return len(self), len(self.colnames)
     
     #### matching & merging 
+    
     def match(self, data1, matcher, verbose=True, replace=False):
         '''
         Match this data object with another `pyttop.table.Data` object `data1`.
@@ -715,27 +727,27 @@ class Data(plot.PlotMethodsMixin):
             Data to be matched to this Data.
         matcher : any recognized matcher object
             A matcher object used to match the two data objects.
-            Built-in matchers includes, e.g., `pyttop.matcher.ExactMatcher` and `pyttop.matcher.SkyMatcher`.
-            See e.g. `help(pyttop.matcher.SkyMatcher)` for more information.
+            Built-in matchers includes, e.g., :class:`~pyttop.matcher.ExactMatcher` and :class:`~pyttop.matcher.SkyMatcher`.
             
-            A matcher object should be defined like below:
+            A matcher object should be defined like below::
                 
-                >>> class MyMatcher():
-                ...     def __init__(self, args): # 'args' means any number of arguments that you need
-                ...         # initialize it with args you need
-                ...         pass
-                ...     
-                ...     def get_values(self, data, data1, verbose=True): # data1 is matched to data
-                ...         # prepare the data that is needed to do the matching (if necessary)
-                ...         pass
-                ...     
-                ...     def match(self):
-                ...         # do the matching process and calculate:
-                ...         # idx : array of shape (len(data), ). 
-                ...         #     the index of a record in data1 that best matches the records in data
-                ...         # matched : boolean array of shape (len(data), ).
-                ...         #     whether the records in data can be matched to those in data1.
-                ...         return idx, matched
+                class MyMatcher():
+                    def __init__(self, args): # 'args' means any number of arguments that you need
+                        # initialize it with args you need
+                        pass
+                    
+                    def get_values(self, data, data1, verbose=True): # data1 is matched to data
+                        # prepare the data that is needed to do the matching (if necessary)
+                        pass
+                    
+                    def match(self):
+                        # do the matching process and calculate:
+                        # idx : array of shape (len(data), ). 
+                        #     the index of a record in data1 that best matches the records in data
+                        # matched : boolean array of shape (len(data), ).
+                        #     whether the records in data can be matched to those in data1.
+                        return idx, matched
+                
         verbose : bool, optional
             Whether to output matching information. The default is True.
         replace : bool, optional
@@ -789,7 +801,7 @@ class Data(plot.PlotMethodsMixin):
     
     def unmatch(self, data1, verbose=True):
         '''
-        Remove match to ``data1``.
+        Remove the match of ``data1``.
 
         Parameters
         ----------
@@ -1071,7 +1083,11 @@ class Data(plot.PlotMethodsMixin):
             pass
         return miss
     
-    def merge(self, depth=-1, keep_unmatched=[], merge_columns={}, ignore_columns={}, innames={}, outname=None, keep_subsets=False, matchinfo_subset=False, verbose=True):
+    def merge(self, depth=-1, keep_unmatched=[], 
+              merge_columns={}, ignore_columns={}, 
+              innames={}, outname=None, 
+              keep_subsets=False, matchinfo_subset=False, 
+              verbose=True):
         '''
         Merge all data objects that are matched to this data.
         
@@ -1094,7 +1110,7 @@ class Data(plot.PlotMethodsMixin):
         merge_columns : dict, optional
             A dict that specifies fields (columns) to be merged.
             For example, if ``data1`` with name 'Data_1' is matched to this object, and you want to merge only 
-            'column1', 'column2' in ``data1`` into the merged catalog, use:
+            'column1', 'column2' in ``data1`` into the merged catalog, use::
                 {'Data_1': ['column1', 'column2']}
             If, e.g, ``merge_columns`` for ``data2`` (with name 'Data_2') is not specified, every fields (columns) of ``data2`` will be merged.
             The default is {}.
@@ -1161,7 +1177,7 @@ class Data(plot.PlotMethodsMixin):
         subsets_to_be_added = [] # will be used if matchinfo_subset
         
         ## merge matchinfo
-        self.match_tree(depth=depth, detail=False)
+        if verbose: self.match_tree(depth=depth, detail=False)
         merged_matchinfo = self.merge_matchinfo(depth=depth)
         
         if len(merged_matchinfo) == 0:
@@ -1308,7 +1324,7 @@ class Data(plot.PlotMethodsMixin):
         matched_names, _, tree_str = self._print_match_tree(self._match_tree(depth=depth)[0], silent=True)
         assert data_names == matched_names
         merging = OrderedDict({ # detailed information for merging
-            'notes': 'This is a table merged from several tables. The merging information is recorded below.'\
+            'notes': 'This is a table merged from several tables. The merging information is recorded below. '\
                      'The metadata for merged datasets are recorded in "metas".',
             'options': dict(
                 depth=depth,
@@ -1324,66 +1340,10 @@ class Data(plot.PlotMethodsMixin):
         
         return matched_data
     
-    def from_which(self, colname=None, detail=True):
-        '''
-        When reading a dataset from a file using ``Data(<path>, name=<name>)``, 
-        the name of the data is associated with each columns. 
-        After matching and merging it with other datasets, you may want to 
-        check the name of the data from which ``colname`` is matched.
-        See examples below.
-        
-        **WARNING**: The information for user-added columns may be invalid.
-
-        Parameters
-        ----------
-        colname : str, optional
-            Column name.
-            If this argument is not given, a dict with the information for all columns 
-            will be returned.
-        detail : bool, optional
-            Whether the detail of the data is returned. The default is True.
-        
-        Returns
-        -------
-        str or dict
-            The name (str) of the data from which ``colname`` is matched,
-            or a dict containing the information for all columns.
-
-        Examples
-        --------
-        Say you have two catalog files, ``cat1.csv`` and ``cat2.csv``.
-        
-            >>> cat1 = Data('cat1.csv', name=cat1) # with columns 'col1', etc.
-            >>> cat2 = Data('cat2.csv', name=cat2) # with columns 'col2', etc.
-            >>> cat_merged = cat1.match(cat2, SkyMatcher()).merge()
-            ... # cat_merged has columns 'col1', 'col2', etc.
-            >>> cat_merged.from_which('col1')
-            cat1 (loaded from "cat1.csv")
-            >>> cat_merged.from_which('col2')
-            cat2 (loaded from "cat2.csv")
-            
-        '''
-        warnings.warn('WARNING: The information for user-added columns may be invalid.',
-                      stacklevel=2)
-        if colname is None:
-            return OrderedDict((name, self.from_which(name, detail=detail)) for name in self.colnames)
-        elif colname not in self.colnames:
-            raise KeyError(colname)
-        else:
-            meta = self.t[colname].meta
-            if 'src' in meta.keys():
-                src, src_detail = meta['src'], meta['src_detail']
-                info = src
-                if detail:
-                    info += f' ({src_detail})'
-                return info
-            else:
-                return ''
-    
     def match_merge(self, data1, matcher, keep_unmatched=[], merge_columns={}, ignore_columns={}, outname=None, verbose=True):
         '''
         Match this data with ``data1`` and immediately merge everything that can be matched to this data.
-        See ``help(pyttop.table.Data.match)`` and ``help(pyttop.table.Data.merge)`` for more information.
+        See :meth:`~Data.match` and :meth:`~Data.merge` for more information.
         '''
         self.match(data1=data1, matcher=matcher, verbose=verbose)
         return self.merge(keep_unmatched=keep_unmatched, merge_columns=merge_columns, ignore_columns=ignore_columns, outname=outname, verbose=verbose)
@@ -1513,6 +1473,7 @@ class Data(plot.PlotMethodsMixin):
         print('---------------')
     
     #### operation
+    
     def apply(self, func, processes=None, args=(), progress_bar=False, **kwargs):
         '''
         Apply function ``func`` to each row of the Table (``data.t``) to get a new column.
@@ -1590,10 +1551,11 @@ class Data(plot.PlotMethodsMixin):
         Evaluate the value with an expression.
         
         In the expression, the columns of the table can be referred to with:
-            - The name of the column, if the name can be regarded as a Python variable name, 
-              and they do not coincidence with names in the local/global namespace.
-            - ``$(<column name>)``.
-            - ``self['<column name>']``.
+        
+        - The name of the column, if the name can be regarded as a Python variable name, 
+          and they do not coincidence with names in the local/global namespace.
+        - ``$(<column name>)``.
+        - ``self['<column name>']``.
         
         The Data object itself can be referred to as ``self``.
 
@@ -1716,10 +1678,11 @@ class Data(plot.PlotMethodsMixin):
             The names of columns (if not given, all columns will be checked).
         action : str, optional
             What to do after checking. The valid actions are:
-                - 'print': print the results
-                - 'bool': return whether duplicates are found
-                - 'detail': return a dict containing the duplicate values for columns with duplicates
-                - 'subset': return a row subset including those where duplicates are found
+                
+            - 'print': print the results
+            - 'bool': return whether duplicates are found
+            - 'detail': return a dict containing the duplicate values for columns with duplicates
+            - 'subset': return a row subset including those where duplicates are found
             
             The default is 'print'.
         '''
@@ -1758,6 +1721,126 @@ class Data(plot.PlotMethodsMixin):
     def sort(self, *args, **kwargs):
         raise NotImplementedError('operation not supported yet; sort a table BEFORE converting it to a `Data` object')
     
+    #### metadata
+    
+    def from_which(self, colname=None, detail=True):
+        '''
+        When reading a dataset from a file using ``Data(<path>, name=<name>)``, 
+        the name of the data is associated with each columns. 
+        After matching and merging it with other datasets, you may want to 
+        check the name of the data from which ``colname`` is matched.
+        See examples below.
+        
+        **WARNING**: The information for user-added columns may be invalid.
+
+        Parameters
+        ----------
+        colname : str, optional
+            Column name.
+            If this argument is not given, a dict with the information for all columns 
+            will be returned.
+        detail : bool, optional
+            Whether the detail of the data is returned. The default is True.
+        
+        Returns
+        -------
+        str or dict
+            The name (str) of the data from which ``colname`` is matched,
+            or a dict containing the information for all columns.
+
+        Examples
+        --------
+        Say you have two catalog files, ``cat1.csv`` and ``cat2.csv``.
+        
+            >>> cat1 = Data('cat1.csv', name=cat1) # with columns 'col1', etc.
+            >>> cat2 = Data('cat2.csv', name=cat2) # with columns 'col2', etc.
+            >>> cat_merged = cat1.match(cat2, SkyMatcher()).merge()
+            ... # cat_merged has columns 'col1', 'col2', etc.
+            >>> cat_merged.from_which('col1')
+            cat1 (loaded from "cat1.csv")
+            >>> cat_merged.from_which('col2')
+            cat2 (loaded from "cat2.csv")
+            
+        '''
+        warnings.warn('WARNING: The information for user-added columns may be invalid.',
+                      stacklevel=2)
+        if colname is None:
+            return OrderedDict((name, self.from_which(name, detail=detail)) for name in self.colnames)
+        elif colname not in self.colnames:
+            raise KeyError(colname)
+        else:
+            meta = self.t[colname].meta
+            if 'src' in meta.keys():
+                src, src_detail = meta['src'], meta['src_detail']
+                info = src
+                if detail:
+                    info += f' ({src_detail})'
+                return info
+            else:
+                return ''
+    
+    def metaJson(self, save_path=None, yes=False):
+        '''
+        Generate a json string for the metadata of this Data.
+    
+        The metadata of an ``pyttop.table.Data`` object typically saves the information
+        on where the data we loaded, how was it merged (if it is a merged catalog), etc.
+        It can be retrieved with ``data.meta``.
+        This is saved as the metadata of ``data.t``, i.e. ``data.meta is data.t.meta``.
+
+        Parameters
+        ----------
+        save_path : str, optional
+            A path to save the json as a file. The default is None (do not save).
+        yes : bool, optional
+            If set to True, existing files will be overwritten without prompts. The default is False.
+
+        Returns
+        -------
+        meta : str
+            A json string.
+
+        '''
+        def break_lines(odict, key):
+            odict[key] = odict[key].split('\n')
+            
+            # lines = odict[key] 
+            # assert isinstance(lines, str)
+            # keys = list(odict.keys())
+            # idx = keys.index(key)
+            # after_keys = keys[idx+1:]
+            # lines = lines.split('\n')
+            # odict.pop(key)
+            # for i, line in enumerate(lines):
+            #     odict[f'{key}_l{i+1}'] =  line
+            # for key in after_keys:
+            #     odict.move_to_end(key)
+                
+        def prepare_meta(odict):
+            if 'merging' in odict.keys():
+                break_lines(odict['merging'], 'tree')
+                for data in odict['merging']['metas']:
+                    prepare_meta(odict['merging']['metas'][data])
+            
+        meta = deepcopy(self.meta)
+        prepare_meta(meta)
+        
+        meta = json.dumps(meta, ensure_ascii=False, indent=4)
+        if save_path:
+            if os.path.exists(save_path) and not yes:
+                pause_and_warn(f"file '{save_path}' already exists!",
+                               choose='Proceed to overwrite this file?',
+                               yes_message=f"file '{save_path}' overwritten.")
+            with open(save_path, 'w', encoding='utf8') as f:
+                f.write(meta)
+        return meta
+    
+    def print_meta(self):
+        print(self.metaJson())
+        
+    def clear_meta(self, in_place=False):
+        raise NotImplementedError()
+    
     #### subsets
     
     def _gen_subset_all(self):
@@ -1784,7 +1867,7 @@ class Data(plot.PlotMethodsMixin):
         ----------
         *subsets : ``pyttop.table.Subset``
             The subsets to be added to this group.
-            See ``help(pyttop.table.Subset)`` for more information.
+            See :class:`Subset` for more information.
         group : str, optional
             The name of the subset group. If not specified, the default subset group will be used.
         listalways : bool, optional
@@ -1985,9 +2068,9 @@ class Data(plot.PlotMethodsMixin):
         -------
         ``pyttop.table.Subset`` or list of ``pyttop.table.Subset``
             The specified subset or list of subsets.
-            
-        Special subsets (groups)
-        ------------------------
+
+        Notes
+        -----
         A special subset group is a virtual group that does not actually exist.
         It is used to create a (new) subset as if retrieving an existing subset from
         the data. 
@@ -2330,12 +2413,13 @@ class Data(plot.PlotMethodsMixin):
         Get a summary table for the subsets and subset groups.
         
         The table consists of the following columns:
-            - `group`: name of the subset group
-            - `name`: name of the subset
-            - `size`: size of the subset
-            - `fraction`: fracion of the size to the total number
-            - `expression`: expression/source code that specifies the selection of the subset
-            - `label`: label of the subset used for plotting
+            
+        - `group`: name of the subset group
+        - `name`: name of the subset
+        - `size`: size of the subset
+        - `fraction`: fracion of the size to the total number
+        - `expression`: expression/source code that specifies the selection of the subset
+        - `label`: label of the subset used for plotting
 
         Parameters
         ----------
@@ -2449,7 +2533,7 @@ class Data(plot.PlotMethodsMixin):
     @keyword_alias('accepted', group='groups')
     def plot(self, func, *args, col_input=None, cols=None, kwcols={}, eval=False, eval_kwargs={}, paths=None, subsets=None, groups=None, autolabel=True, ax=None, verbose=True, global_selection=None, title=None, iter_kwargs={}, **kwargs):
         '''
-        Make a plot given a plotting function.
+        Make a plot given a plot function.
         
         Arguments ``paths``, ``subsets``, ``groups`` are used to specify the subsets of data 
         that are plotted in the same subplot.
@@ -2463,17 +2547,17 @@ class Data(plot.PlotMethodsMixin):
             Arguments to be passed to func.
         cols : str or list of str, optional
             The name of the columns to be passed to ``func``. 
-            For example, if ``cols = ['col1', 'col2']``, ``func`` will be called by:
-                ``func(data['col1'], data['col2'], *args)``
+            For example, if ``cols = ['col1', 'col2']``, ``func`` will be called by::
+                func(data['col1'], data['col2'], *args)
             `Note`: When ``autolabel`` is True, the len of this argument is used to guess the dimension of the plot (e.g. 2D/3D).
             The default is None.
         kwcols : dict, optional
             Names of data columns that are passed to ``func`` as keyword arguments.
-            For example, if ``kwcols={'x': 'col1', 'y':'col2'}``, ``func`` will be called by:
-                ``func(x=data['col1'], y=data['col2'])``
+            For example, if ``kwcols={'x': 'col1', 'y':'col2'}``, ``func`` will be called by::
+                func(x=data['col1'], y=data['col2'])
         eval : bool, optional
             If set to ``True``, the names of data columns for ``cols`` and ``kwcols`` will be regarded as expressions to be evaluated with ``Data.eval()``.
-            This means that you can not only input column names, but also input expressions. See ``help(Data.eval)`` for the syntax of expressions.
+            This means that you can not only input column names, but also input expressions. See :meth:`~Data.eval` for the syntax of expressions.
             Otherwise, the names will simply be considered as column names.
             The default is False.
         eval_kwargs : dict, optional
@@ -2501,17 +2585,17 @@ class Data(plot.PlotMethodsMixin):
         verbose : bool, optional
             Whether some detailed information is printed. The default is True.
         ax : axes, optional
-            The axis of the plot. 
-            Note that this is ONLY used for adding axis labels and legends; 
-            if you would like to plot on a specific axis, consider passing e.g. ``ax.plot`` to argument ``func``.
+            The axis to make the plot. 
             The default is None.
         global_selection : ``astrodata.table.Subset`` or str or list of str, optional
             The global selection [or the path(s) of the selection(s)] for this plot. 
             If not None, only data selected by this argument is plotted.
             Accepted input:
-                - An ``pyttop.table.Subset`` object. Note that logical operations of subsets are supported, e.g. ``subset1 & subset2 | subset3``.
-                - The path to the subset, i.e. ``'groupname/subsetname'``. If group name is 'default', you can directly use 'subsetname'.
-                - A list/tuple/set of paths to the subsets. The global selection will be the logical AND (i.e. the intersection set) of the subsets.
+                
+            - An ``pyttop.table.Subset`` object. Note that logical operations of subsets are supported, e.g. ``subset1 & subset2 | subset3``.
+            - The path to the subset, i.e. ``'groupname/subsetname'``. If group name is 'default', you can directly use 'subsetname'.
+            - A list/tuple/set of paths to the subsets. The global selection will be the logical AND (i.e. the intersection set) of the subsets.
+            
             The default is None.
         title : str
             Manually setting the title of the plot. This will overwrite the title automatically generated.
@@ -2519,33 +2603,25 @@ class Data(plot.PlotMethodsMixin):
         iter_kwargs : dict, optional
             Lists of keywoard arguments that are different for each subset specified. 
             Suppose 3 subsets are specified using the ``subsets`` argument, an example value for 
-            ``iter_kwargs`` is :
-                ``{'color': ['b', 'r', 'k'], 'linestyle': ['-', '--', '-.']}``
+            ``iter_kwargs`` is ::
+                {'color': ['b', 'r', 'k'], 'linestyle': ['-', '--', '-.']}
             The default is {}.
         **kwargs : 
             Additional keyword arguments to be passed to ``func``.
-
-        Raises
-        ------
-        ValueError
-            len of one item of iter_kwargs is not equal to 
-            the len of paths/subsets
-
-        Examples
-        --------
-        One example:
-            
-        >>> from pyttop.table import Data
-        >>> data = Data({'col1': [1, 2, 3], 'col2': [1, 4, 9]})
-        >>> fig, ax = plt.subplots()
-        >>> data.plot(ax.plot, columns=('col1', 'col2'), color='k')
         '''
+        # Raises
+        # ------
+        # ValueError
+        #     len of one item of iter_kwargs is not equal to 
+        #     the len of paths/subsets
+
         iter_kwargs = iter_kwargs.copy()
         kwarg_columns = kwcols.copy()
         columns = cols
         
         if type(columns) is str:
             columns = [columns]
+            
         if type(func) is str:
             if func not in plot_funcs:
                 raise ValueError("unrecognized func name '{}' (supported names: '{}')".format(func, "', '".join(plot_funcs.keys())))
@@ -2615,10 +2691,11 @@ class Data(plot.PlotMethodsMixin):
         else:
             iter_kwargs_list = repeat({})
         
-        if isinstance(func, plot.PlotFunction):
-            plot_func = func.in_plot # callback of func should not be recursively called.
-        else:
-            plot_func = func
+        plot_func = func.call_with_ax(ax) # callback of func should not be recursively called.
+        # if isinstance(func, plot.PlotFunction):
+        #     plot_func = func.call_with_ax(ax) # callback of func should not be recursively called.
+        # else:
+        #     plot_func = func
         
         if verbose and eval:
             # print expressions to be evaluated
@@ -2726,17 +2803,17 @@ class Data(plot.PlotMethodsMixin):
             Arguments to be passed to the plotting function.
         cols : str or list of str, optional
             The name of the columns to be passed to the plotting function. 
-            For example, if ``cols = ['col1', 'col2']``, the plotting function will be called by:
-                ``func(data['col1'], data['col2'], *args)``
-            `Note`: When ``autolabel`` is True, the len of this argument is used to guess the dimension of the plot (e.g. 2D/3D).
+            For example, if ``cols = ['col1', 'col2']``, the plotting function will be called by::
+                func(data['col1'], data['col2'], *args)
+            *Note*: When ``autolabel`` is True, the len of this argument is used to guess the dimension of the plot (e.g. 2D/3D).
             The default is None.
         kwcols : dict, optional
             Names of data columns that are passed to the plotting function as keyword arguments.
-            For example, if ``kwcols={'x': 'col1', 'y':'col2'}``, the plotting function will be called by:
-                ``func(x=data['col1'], y=data['col2'])``
+            For example, if ``kwcols={'x': 'col1', 'y':'col2'}``, the plotting function will be called by::
+                func(x=data['col1'], y=data['col2'])
         eval : bool, optional
             If set to ``True``, the names of data columns for ``cols`` and ``kwcols`` will be regarded as expressions to be evaluated with ``Data.eval()``.
-            This means that you can not only input column names, but also input expressions. See ``help(Data.eval)`` for the syntax of expressions.
+            This means that you can not only input column names, but also input expressions. See :meth:`Data.eval` for the syntax of expressions.
             Otherwise, the names will simply be considered as column names.
             The default is False.
         eval_kwargs : dict, optional
@@ -2760,17 +2837,21 @@ class Data(plot.PlotMethodsMixin):
         arraygroups : str or iterable of len <= 2, optional
             The name of subset groups used to make different panels. 
             Examples:
-                - ``arraygroups = ['group1']``, where `'group1'` consists of 3 subsets. 
-                  Then subplots with ``nrow=1, ncol=3`` (1x3) are generated.
-                - ``arraygroups = ['group1', 'group2']``, where `'group1', 'group2'` consists of 3, 4 subsets respectively. 
-                  Then subplots with ``nrow=3, ncol=4`` (3x4) are generated.
+            
+            - ``arraygroups = ['group1']``, where `'group1'` consists of 3 subsets. 
+              Then subplots with ``nrow=1, ncol=3`` (1x3) are generated.
+            - ``arraygroups = ['group1', 'group2']``, where `'group1', 'group2'` consists of 3, 4 subsets respectively. 
+              Then subplots with ``nrow=3, ncol=4`` (3x4) are generated.
+              
             The default is None.
         global_selection : ``pyttop.table.Subset`` or str or list of str, optional
             Only consider data in subset ``global_selection``.
             Accepted input:
-                - An ``pyttop.table.Subset`` object. Note that logical operations of subsets are supported, e.g. ``subset1 & subset2 | subset3``.
-                - The path to the subset, i.e. ``'groupname/subsetname'``. If group name is 'default', you can directly use 'subsetname'.
-                - A list/tuple/set of paths to the subsets. The global selection will be the logical AND (i.e. the intersection set) of the subsets.
+            
+            - An ``pyttop.table.Subset`` object. Note that logical operations of subsets are supported, e.g. ``subset1 & subset2 | subset3``.
+            - The path to the subset, i.e. ``'groupname/subsetname'``. If group name is 'default', you can directly use 'subsetname'.
+            - A list/tuple/set of paths to the subsets. The global selection will be the logical AND (i.e. the intersection set) of the subsets.
+            
             The default is None (the whole dataset is considered).
         share_ax : bool, optional
             Whether the x, y axes are shared. The default is False.
@@ -2799,7 +2880,7 @@ class Data(plot.PlotMethodsMixin):
                 return a list of the returned values of the plot function.
             
             Whatever this argument is, you can always retrive the figure, axes and the returned values (of the 
-            plot function) of the last call of ``data.plot()`` with ``self.plot_fig, self.plot_axes, self.plot_returns``.
+            plot function) of the last call of ``data.plot()`` with ``data.plot_fig, data.plot_axes, data.plot_returns``.
         
         verbose : bool, optional
             Whether some detailed information is printed. The default is True.
@@ -2814,17 +2895,11 @@ class Data(plot.PlotMethodsMixin):
         iter_kwargs : dict, optional
             Lists of keywoard arguments that are different for each subset in ``plotgroups``. 
             Suppose ``plotgroups='group1'`` consists of 3 subsets, an example value for 
-            ``iter_kwargs`` is :
-                ``{'color': ['b', 'r', 'k'], 'linestyle': ['-', '--', '-.']}``
+            ``iter_kwargs`` is ::
+                {'color': ['b', 'r', 'k'], 'linestyle': ['-', '--', '-.']}
             The default is {}.
         **kwargs : 
             Additional keyword arguments to be passed to the plotting function.
-
-        Raises
-        ------
-        ValueError
-            - len(arraygroups) >=3: plot array of dim >= 3 not supported.
-            - inferred ``nrow*ncol`` != ``len(axes)`` given
 
         Returns
         -------
@@ -2833,6 +2908,13 @@ class Data(plot.PlotMethodsMixin):
         axes : list if axes
 
         '''
+        # Raises
+        # ------
+        # ValueError
+        
+        #     - ``len(arraygroups) >=3``: plot array of dim >= 3 not supported.
+        #     - inferred ``nrow*ncol`` != ``len(axes)`` given
+        
         # TODO (not implemented)
         if share_ax: raise NotImplementedError('This feature is not implemented, and whether it will be added is undetermined.')
         
@@ -2857,19 +2939,19 @@ class Data(plot.PlotMethodsMixin):
             kwargs['barlabel'] = self.get_labels(kwarg_columns['c'], eval=eval)
 
         if arraygroups is None:
+            # only one axis
             if axes is None:
                 axes = plt.gca()
             if isinstance(axes, Iterable):
                 axes = axes[0]
             if fig is None:
                 fig = axes.figure
-            ret = self.plot(func(axes), *args, cols=columns, kwcols=kwarg_columns, eval=eval, eval_kwargs=eval_kwargs, paths=plotpaths, subsets=plotsubsets, groups=plotgroups, autolabel=autolabel, global_selection=global_selection, verbose=verbose, ax=axes, iter_kwargs=iter_kwargs, **kwargs)
+            ret = self.plot(func, *args, cols=columns, kwcols=kwarg_columns, eval=eval, eval_kwargs=eval_kwargs, paths=plotpaths, subsets=plotsubsets, groups=plotgroups, autolabel=autolabel, global_selection=global_selection, verbose=verbose, ax=axes, iter_kwargs=iter_kwargs, **kwargs)
             if ax_callback is not None:
                 ax_callback(axes)
             self.plot_returns.append(ret)
         
         else:
-    
             # get subsets for each panel
             if type(arraygroups) is str:
                 arraygroups = [arraygroups]
@@ -2923,7 +3005,7 @@ class Data(plot.PlotMethodsMixin):
                     subset_with_global = subset & global_selection
                 else:
                     subset_with_global = subset
-                ret = self.plot(func(ax), *args, cols=columns, kwcols=kwarg_columns, eval=eval, eval_kwargs=eval_kwargs, paths=plotpaths, subsets=plotsubsets, groups=plotgroups, autolabel=autolabel, verbose=verbose, ax=ax, global_selection=subset_with_global, title=subset.label, iter_kwargs=iter_kwargs, **kwargs)
+                ret = self.plot(func, *args, cols=columns, kwcols=kwarg_columns, eval=eval, eval_kwargs=eval_kwargs, paths=plotpaths, subsets=plotsubsets, groups=plotgroups, autolabel=autolabel, verbose=verbose, ax=ax, global_selection=subset_with_global, title=subset.label, iter_kwargs=iter_kwargs, **kwargs)
                 self.plot_returns.append(ret)
                 
                 if ax_callback is not None:
@@ -2986,14 +3068,15 @@ class Data(plot.PlotMethodsMixin):
             The format of the file. 
             The default is 'data'.
             Supported formats include:
-                'pkl': 
-                    Saving the full data object to a "*.pkl" file. 
-                'data' (default):
-                    Saving key data (including the data table, the subsets, etc.) to a "*.data" file.
-                    Note that the matching data is not saved.
-                Other formats: Any format supported by ``astropy.table.Table.write``. 
-                    Only saving the data table (``astropy.table.Table``). 
-                    This is equivalent to ``data.t.write(<...>)``.
+                
+            - 'pkl': 
+                Saving the full data object to a ``"*.pkl"`` file. 
+            - 'data' (default):
+                Saving key data (including the data table, the subsets, etc.) to a ``"*.data"`` file.
+                Note that the matching data is not saved.
+            - Other formats: Any format supported by ``astropy.table.Table.write``. 
+                Only saving the data table (``astropy.table.Table``). 
+                This is equivalent to ``data.t.write(<...>)``.
         overwrite : bool, optional
             Whether to overwrite the file if it exists. 
             If set to ``False``, a ``FileExistsError`` will be raised.
@@ -3004,8 +3087,10 @@ class Data(plot.PlotMethodsMixin):
         FileExistsError
             The file already exists.
             
-        Notes for developers
-        --------------------
+        Notes
+        -----
+        **Notes for developers**
+        
         When setting ``format='pkl'``, a Data object will be saved with the standard ``pickle`` module.
         This means that all data for the object is converted and saved as a byte stream. When setting ``format='data'``,
         only a selected subset of attributes will be saved `separately`, and are not necessarily saved 
@@ -3080,7 +3165,7 @@ class Data(plot.PlotMethodsMixin):
         '''
         Load a data file saved with ``Data.save()`` (usually with ".data" or ".pkl" format).
         
-        **Note**: You may also read a raw table file like "*.csv", but it 
+        *Note*: You may also read a raw table file like ``'*.csv'``, but it 
         is suggested to use ``Data('your_catalog.csv')`` instead of 
         ``Data.load('your_catalog.csv', format='ascii.csv')``.
 
@@ -3089,7 +3174,7 @@ class Data(plot.PlotMethodsMixin):
         path : str
             Path to the file.
         format : str, optional
-            The format of the file (see ``help(Data.save)``). 
+            The format of the file (see :meth:`Data.save`). 
             The default is 'data'.
         **kwargs :
             other arguments passed when initializing ``Data`` 
@@ -3184,68 +3269,6 @@ class Data(plot.PlotMethodsMixin):
             return cls(path, format=format, **kwargs)
     
     #### basic methods
-    
-    def metaJson(self, save_path=None, yes=False):
-        '''
-        Generate a json string for the metadata of this Data.
-    
-        The metadata of an ``pyttop.table.Data`` object typically saves the information
-        on where the data we loaded, how was it merged (if it is a merged catalog), etc.
-        It can be retrieved with ``data.meta``.
-        This is saved as the metadata of ``data.t``, i.e. ``data.meta is data.t.meta``.
-
-        Parameters
-        ----------
-        save_path : str, optional
-            A path to save the json as a file. The default is None (do not save).
-        yes : bool, optional
-            If set to True, existing files will be overwritten without prompts. The default is False.
-
-        Returns
-        -------
-        meta : str
-            A json string.
-
-        '''
-        def break_lines(odict, key):
-            odict[key] = odict[key].split('\n')
-            
-            # lines = odict[key] 
-            # assert isinstance(lines, str)
-            # keys = list(odict.keys())
-            # idx = keys.index(key)
-            # after_keys = keys[idx+1:]
-            # lines = lines.split('\n')
-            # odict.pop(key)
-            # for i, line in enumerate(lines):
-            #     odict[f'{key}_l{i+1}'] =  line
-            # for key in after_keys:
-            #     odict.move_to_end(key)
-                
-        def prepare_meta(odict):
-            if 'merging' in odict.keys():
-                break_lines(odict['merging'], 'tree')
-                for data in odict['merging']['metas']:
-                    prepare_meta(odict['merging']['metas'][data])
-            
-        meta = deepcopy(self.meta)
-        prepare_meta(meta)
-        
-        meta = json.dumps(meta, ensure_ascii=False, indent=4)
-        if save_path:
-            if os.path.exists(save_path) and not yes:
-                pause_and_warn(f"file '{save_path}' already exists!",
-                               choose='Proceed to overwrite this file?',
-                               yes_message=f"file '{save_path}' overwritten.")
-            with open(save_path, 'w', encoding='utf8') as f:
-                f.write(meta)
-        return meta
-    
-    def print_meta(self):
-        print(self.metaJson())
-        
-    def clear_meta(self, in_place=False):
-        raise NotImplementedError()
     
     def copy(self):
         raise NotImplementedError()
@@ -3353,16 +3376,34 @@ class Data(plot.PlotMethodsMixin):
     def labels(self): # alternative name for col_labels
         return self.col_labels
     
+    ## deprecated old names
     # subsets = subset_data # another name for subset_data
-    subplot_array = plots
+    # subplot_array = plots
+    @wraps(plots)
+    def subplot_array(self, *args, **kwargs):
+        return self.plots(*args, **kwargs)
+    subplot_array.__doc__ = 'Deprecated name of :meth:`~Data.plots`'
+    
+    ## abbreviations for properties
+    cols = colnames
     
     ## abbreviations for methods
-    cols = colnames
-    tree = match_tree
-    mm = mskmis = mask_missing
-    chkdup = checkdup = check_duplication
-    adsub = add_subsets
-    gs = gtsub = get_subsets
-    subdat = subset_data
-    ss = subsum = subset_summary
+    # tree = match_tree
+    # mm = mskmis = mask_missing
+    # chkdup = checkdup = check_duplication
+    # adsub = add_subsets
+    # gs = gtsub = get_subsets
+    # subdat = subset_data
+    # ss = subsum = subset_summary
         
+    _method_aliases = {
+        'match_tree': ['tree'],
+        'mask_missing': ['mskmis', 'mm'],
+        'check_duplication': ['checkdup', 'chkdup'],
+        'add_subsets': ['adsub'],
+        'get_subsets': ['gtsub', 'gs'],
+        'subset_data': ['subdat'],
+        'subset_summary': ['subsum', 'ss'],
+        }
+
+create_method_alias(Data, Data._method_aliases)

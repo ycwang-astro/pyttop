@@ -295,10 +295,13 @@ def keyword_alias(state='deprecated', /, **aliases):
     ----------
     state : str
         POSITIONAL-ONLY argument.
+        
         Three states: 
-            'accepted' (no warnings)
-            'deprecated' (warnings)
-            'removed' (error)
+            
+        - 'accepted' (no warnings)
+        - 'deprecated' (warnings)
+        - 'removed' (error)
+            
     **aliases : old = new
         old (deprecated) name and new name
     '''
@@ -321,4 +324,17 @@ def keyword_alias(state='deprecated', /, **aliases):
             return f(*args, **kwargs)
         return fnew
     return wrapper
+
+#%% class modifier
+def create_method_alias(cls, method_aliases):
+    def create_new_method(orig_method):
+        @wraps(orig_method)
+        def method(*args, **kwargs):
+            return orig_method(*args, **kwargs)
+        method.__doc__ = f'Alias of :meth:`~{cls.__name__}.{orig}`'
+        return method
+    for orig, aliases in method_aliases.items():
+        orig_method = getattr(cls, orig)
+        for alias in aliases:
+            setattr(cls, alias, create_new_method(orig_method))
 
