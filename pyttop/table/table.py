@@ -445,17 +445,17 @@ class Subset():
 
 
     def _cut(self, index, new_data=None):
-        # return a cutted Subset (cutted with ``index``)
-        cutted_subset = Subset(
+        # return a cut Subset (cut with ``index``)
+        cut_subset = Subset(
             self.selection[index], # Note: this is not a copy of self.selection. This is not a problem, since the array it refers to is never modified in the code.
             self.name,
             self.expression,
             self.label,
             )
-        # cutted_subset.data_name = data_name
+        # cut_subset.data_name = data_name
         if new_data is not None:
-            cutted_subset._data = new_data
-        return cutted_subset
+            cut_subset._data = new_data
+        return cut_subset
 
     @property
     def size(self): # the size of the subset
@@ -1116,7 +1116,9 @@ class Data(plot.PlotMethodsMixin):
             A dict that specifies fields (columns) to be merged.
             For example, if ``data1`` with name 'Data_1' is matched to this object, and you want to merge only
             'column1', 'column2' in ``data1`` into the merged catalog, use::
+
                 {'Data_1': ['column1', 'column2']}
+
             If, e.g, ``merge_columns`` for ``data2`` (with name 'Data_2') is not specified, every fields (columns) of ``data2`` will be merged.
             The default is {}.
         ignore_columns : dict, optional
@@ -1178,7 +1180,7 @@ class Data(plot.PlotMethodsMixin):
         unnamed_count = 0
         data_names = [self.name]
         data_metas = {self.name: self.meta}
-        data_subset_groups = [] # list of cutted subset groups for each data
+        data_subset_groups = [] # list of cut subset groups for each data
         subsets_to_be_added = [] # will be used if matchinfo_subset
 
         ## merge matchinfo
@@ -1579,6 +1581,7 @@ class Data(plot.PlotMethodsMixin):
 
             For example, if you use an expression 'my_function(col) + my_value' (where 'col' is a column name in the data),
             you can pass ``my_function`` and ``my_value`` by::
+
                 Data.eval('my_function(col) + my_value', my_function=my_function, my_value=my_value)
 
         Returns
@@ -1633,6 +1636,7 @@ class Data(plot.PlotMethodsMixin):
         Note that the printed information indicates the number of elements masked
         in this process, rather than the total number of masked elements in the columns.
         To get the number of unmasked elements in a column, try::
+
             print(data.get_subsets('$unmasked/<column_name>'))
 
         Parameters
@@ -1970,7 +1974,7 @@ class Data(plot.PlotMethodsMixin):
         Create a subset group by setting several ranges of values of a column.
 
         For example, ``data.subset_group_from_ranges(column='col1', ranges=[[0, 1], [1, 2]])``
-        defines a subset group named 'col1', which consists of 2 subsets, `0<col1<1` and `1<col1<2`.
+        defines a subset group named ``'col1'``, which includes 2 subsets, ``0 < col1 < 1`` and ``1 < col1 < 2``.
 
         Parameters
         ----------
@@ -2041,6 +2045,7 @@ class Data(plot.PlotMethodsMixin):
 
         If no arguments are provided, this method returns all subsets organized by group and subset names,
         accessible as a nested dictionary::
+
             >>> subsets = data.get_subsets()
             >>> mysubset = subsets['group_name']['subset_name']
 
@@ -2082,6 +2087,7 @@ class Data(plot.PlotMethodsMixin):
         These virtual subsets are only created when ``get_subsets()``
         is called and are not added to the data. To store a virtual subset as a "normal" subset in the
         ``pyttop.table.Data`` instance, use the following::
+
             data.add_subsets(
                 data.get_subsets('<path to the special subset>'),
                 )
@@ -2092,10 +2098,12 @@ class Data(plot.PlotMethodsMixin):
           a specified column are not masked (i.e., a subset in this group contains rows where the value
           for the specified column is not masked).
           To retrieve such a subset, use::
+
               data.get_subsets('$unmasked/<column name>')
 
           Note that a new subset is created each time ``get_subsets()`` is called to retrieve such a subset.
           The old subsets remain unchanged even if the column's mask changes. For example::
+
               subset0 = data.get_subsets('$unmasked/col1')
               # changing the mask of column 'col1'
               subset1 = data.get_subsets('$unmasked/col1')
@@ -2549,13 +2557,17 @@ class Data(plot.PlotMethodsMixin):
         cols : str or list of str, optional
             The name of the columns to be passed to ``func``.
             For example, if ``cols = ['col1', 'col2']``, ``func`` will be called by::
+
                 func(data['col1'], data['col2'], *args)
+
             `Note`: When ``autolabel`` is True, the len of this argument is used to guess the dimension of the plot (e.g. 2D/3D).
             The default is None.
         kwcols : dict, optional
             Names of data columns that are passed to ``func`` as keyword arguments.
             For example, if ``kwcols={'x': 'col1', 'y':'col2'}``, ``func`` will be called by::
+
                 func(x=data['col1'], y=data['col2'])
+
         eval : bool, optional
             If set to ``True``, the names of data columns for ``cols`` and ``kwcols`` will be regarded as expressions to be evaluated with ``Data.eval()``.
             This means that you can not only input column names, but also input expressions. See :meth:`~Data.eval` for the syntax of expressions.
@@ -2605,7 +2617,9 @@ class Data(plot.PlotMethodsMixin):
             Lists of keywoard arguments that are different for each subset specified.
             Suppose 3 subsets are specified using the ``subsets`` argument, an example value for
             ``iter_kwargs`` is ::
+
                 {'color': ['b', 'r', 'k'], 'linestyle': ['-', '--', '-.']}
+
             The default is {}.
         **kwargs :
             Additional keyword arguments to be passed to ``func``.
@@ -2803,13 +2817,17 @@ class Data(plot.PlotMethodsMixin):
         cols : str or list of str, optional
             The name of the columns to be passed to the plotting function.
             For example, if ``cols = ['col1', 'col2']``, the plotting function will be called by::
+
                 func(data['col1'], data['col2'], *args)
+
             *Note*: When ``autolabel`` is True, the len of this argument is used to guess the dimension of the plot (e.g. 2D/3D).
             The default is None.
         kwcols : dict, optional
             Names of data columns that are passed to the plotting function as keyword arguments.
             For example, if ``kwcols={'x': 'col1', 'y':'col2'}``, the plotting function will be called by::
+
                 func(x=data['col1'], y=data['col2'])
+
         eval : bool, optional
             If set to ``True``, the names of data columns for ``cols`` and ``kwcols`` will be regarded as expressions to be evaluated with ``Data.eval()``.
             This means that you can not only input column names, but also input expressions. See :meth:`Data.eval` for the syntax of expressions.
@@ -2895,7 +2913,9 @@ class Data(plot.PlotMethodsMixin):
             Lists of keywoard arguments that are different for each subset in ``plotgroups``.
             Suppose ``plotgroups='group1'`` consists of 3 subsets, an example value for
             ``iter_kwargs`` is ::
+
                 {'color': ['b', 'r', 'k'], 'linestyle': ['-', '--', '-.']}
+
             The default is {}.
         **kwargs :
             Additional keyword arguments to be passed to the plotting function.
@@ -3093,7 +3113,7 @@ class Data(plot.PlotMethodsMixin):
         When setting ``format='pkl'``, a Data object will be saved with the standard ``pickle`` module.
         This means that all data for the object is converted and saved as a byte stream. When setting ``format='data'``,
         only a selected subset of attributes will be saved `separately`, and are not necessarily saved
-        with the Python's standard pickling protocols. This makes it possible to retrieve some data from the '*.data' file
+        with the Python's standard pickling protocols. This makes it possible to retrieve some data from the ``'*.data'`` file
         even without e.g. Python's ``pickle`` module.
         '''
         if format == 'pkl':
