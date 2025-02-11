@@ -116,10 +116,10 @@ class ColumnNotFoundError(LookupError):
 
 class Subset():
     '''
-    A class to specify a row subset of an ``pyttop.table.Data`` object.
+    A class to specify a row subset of a ``pyttop.table.Data`` object.
     Although this class is independent to the ``Data`` class, it should be only used together with a ``Data`` object.
     
-    To specify the selection criteria, name, etc. of a subset, the general way is::
+    The common way to specify the selection criteria, name, etc. of a subset is::
 
         Subset(<selection>, name=<name>, <...>)
 
@@ -128,17 +128,17 @@ class Subset():
         Subset.by_range(<column name>=<value range>, <...>)
         Subset.by_value(<column name>, <value>)
 
-    See :meth:`~Subset.by_range`` and :meth:`~Subset.by_value`` for more information.
+    See :meth:`~Subset.by_range()` and :meth:`~Subset.by_value()` for more information.
     
-    In practice, a subset of ``data`` is usually defined as:
+    In practice, a subset of ``data`` is usually defined using the :meth:`~Data.add_subsets()` method::
         
-        >>> subset = data.add_subsets(Subset(<...>))
+        subset = data.add_subsets(Subset(<...>))
     
-    You may also define multiple subsets at a time:
+    You may also define multiple subsets at a time::
         
-        >>> subset1, subset2 = data.add_subsets(
-        ...     Subset(<...>),
-        ...     Subset(<...>))
+        subset1, subset2 = data.add_subsets(
+            Subset(<...>),
+            Subset(<...>))
     
     ``Subset`` objects can be used as if they are arrays (for most cases).
     For example, you can get the intersection set ``subset1 & subset2``,
@@ -180,8 +180,8 @@ class Subset():
         
     Notes
     -----
-    The inputs of ``__init__()`` will be attributes of the object.
-    By executing the ``eval_`` method, an ``pyttop.table.Data`` object ``data`` is inputted, and:
+    The parameters ``selection``, ``name``, ``expression``, and ``label`` will become attributes of the ``Subset`` object.
+    By defining a subset using ``data.add_subsets(Subset(<...>))``, they are evaluated given ``data``:
         
     - The attribute ``selection`` will be converted to a boolean array;
     - The attribute ``name`` will be set to the default name if it is None;
@@ -189,13 +189,13 @@ class Subset():
     - The attribute ``label`` will be set to ``name`` if it is None; strings will be replaced 
       according to the mapping of dict ``data.col_labels``.
           
-    If the input/evaluation of ``selection`` is/results in a masked (boolean) array, the masked elements 
+    If the input ``selection`` is/results in a masked (boolean) array, the masked elements 
     are filled with False (which means that they are NOT included in this subset by definition).
     This often happens when ``selection`` is calculated from a masked column of the table.
-    The final ``selection`` after executing the ``eval_`` method is never a masked array.
+    The final ``selection`` after evaluation is never a masked array.
     
     **Caveat**. Subsets constructed with ``expr`` and ``~expr`` are NOT necessarily complements of each other!
-    See the below example::
+    See the example below::
         
         >>> from pyttop.table import Data, Subset
         >>> d = Data(name='test')
@@ -324,6 +324,9 @@ class Subset():
         Evaluate the selection array, expression, name and label, given data.
         This method should be executed if, self.selection is not a boolean array
         OR either self.name or self.expression is None.
+        
+        Note that if a subset is added to ``data`` using ``data.add_subset(Subset(<...>))``, 
+        this method is already called, and do not need to be called again.
 
         Parameters
         ----------
@@ -331,7 +334,7 @@ class Subset():
             
         existing_keys : Iterable, optional
             Names of subsets that already exists. 
-            This is used to generate automatic subset names.
+            This is used to automatically generate subset names.
             The default is ().
         '''
         # detects dangerous operations of re_evaluating a subset with a different data while it is still recorded in a data
@@ -611,10 +614,12 @@ class Data(plot.PlotMethodsMixin):
         
     Attributes
     ----------
+    t : ``astropy.table.Table``
+        The table.
     colnames : list
         A list of column names.
     shape : tuple
-        (number_of_rows, number_of_columns)
+        ``(<number_of_rows>, <number_of_columns>)``
     '''
     def __init__(self, data=None, name=None, **kwargs):
         '''
@@ -1783,8 +1788,8 @@ class Data(plot.PlotMethodsMixin):
         '''
         Generate a json string for the metadata of this Data.
     
-        The metadata of an ``pyttop.table.Data`` object typically saves the information
-        on where the data we loaded, how was it merged (if it is a merged catalog), etc.
+        The metadata of a ``pyttop.table.Data`` object typically saves the information
+        on how it was initialized, how it was merged (if it is a merged catalog), etc.
         It can be retrieved with ``data.meta``.
         This is saved as the metadata of ``data.t``, i.e. ``data.meta is data.t.meta``.
 
@@ -2059,7 +2064,7 @@ class Data(plot.PlotMethodsMixin):
             If True, always returns a list of subsets (even if the list contains only one subset).
             The default is False.
         force : bool, optional
-            Relevant only when ``path`` is a ``Subset`` object. 
+            Relevant only when ``path`` (or ``name``) is a ``Subset`` object. 
             If this ``Subset`` object is not a subset of this data, an exception will be raised.
             Setting ``force`` to True will bypass this exception. 
             Default is False.
@@ -2117,18 +2122,14 @@ class Data(plot.PlotMethodsMixin):
             if group is not None or name is not None:
                 warnings.warn('Since the argument "path" is given, arguments "name"/"group" are ignored.',
                               stacklevel=2)
-            if isinstance(path, Subset): # it is itself a Subset!
-                self._check_subset_association(path, action = 'warn' if force else 'raise')
-                return path
-            if type(path) is str:
-                if listalways:
-                    path = [path]
-                else:
-                    return self._get_subset_from_path(path, autosearch=autosearch)
+            if listalways and isinstance(path, (Subset, str)):
+                path = [path]
+            if isinstance(path, (Subset, str)):
+                return self._get_subset_from_path(path, autosearch=autosearch, force=force)
             if isinstance(path, Iterable):
                 subsets = []
                 for p in path:
-                    subsets.append(self._get_subset_from_path(p, autosearch=autosearch))
+                    subsets.append(self._get_subset_from_path(p, autosearch=autosearch, force=force))
                 return subsets
             else:
                 raise TypeError(f'path should be str or Iterable, got {type(path)}')
@@ -2144,28 +2145,28 @@ class Data(plot.PlotMethodsMixin):
             
             if name is None:
                 name = self.subset_groups[group].keys()
+            if listalways and isinstance(name, (Subset, str)):
+                name = [name]
             if type(name) is str:
-                if listalways:
-                    name = [name]
-                else:
-                    return self._get_subset_from_path(f'{group}/{name}', autosearch=autosearch)
+                return self._get_subset_from_path(f'{group}/{name}', autosearch=autosearch)
             if isinstance(name, Iterable):
                 subsets = []
                 for n in name:
                     if isinstance(n, Subset): # it is itself a Subset!
-                        subsets.append(n)
+                        subsets.append(self._get_subset_from_path(n, autosearch=autosearch, force=force))
                     else:
                         subsets.append(self._get_subset_from_path(f'{group}/{n}', autosearch=autosearch))
                 return subsets
             elif isinstance(name, Subset): # it is itself a Subset
-                return name
+                return self._get_subset_from_path(name, autosearch=autosearch, force=force)
             else:
                 raise TypeError(f'name should be str or Iterable, not {type(name)}')
     
-    def _get_subset_from_path(self, path, autosearch=False):
+    def _get_subset_from_path(self, path, autosearch=False, force=False):
         # get the subset from path
         # autosearch: search this subset name in other groups if does not found this name in this group
         if isinstance(path, Subset): # it is itself a Subset
+            self._check_subset_association(path, action = 'warn' if force else 'raise')
             return path
         
         if '/' not in path:
@@ -2184,7 +2185,7 @@ class Data(plot.PlotMethodsMixin):
         
         if name not in self.subset_groups[group].keys():
             if autosearch:
-                subset = self._get_subset_from_name(name) # search for this name in all groups
+                subset = self._search_subset_from_name(name) # search for this name in all groups
             else:
                 suggest_names = get_close_matches(name, self.subset_groups[group].keys())
                 raise SubsetNotFoundError(f"{group}/{name}", kind='path', suggest_names=suggest_names)
@@ -2192,7 +2193,7 @@ class Data(plot.PlotMethodsMixin):
             subset = self.subset_groups[group][name]
         return subset
     
-    def _get_subset_from_name(self, name, verbose=True):
+    def _search_subset_from_name(self, name, verbose=True):
         # get subset for name without knowing the name of the group
         group = None
         subset = None
@@ -2636,9 +2637,7 @@ class Data(plot.PlotMethodsMixin):
             global_selection = bitwise_all(self._get_subsets(path=global_selection, listalways=True))       
 
         subset_names = subsets
-        subsets = self._get_subsets(path=paths, name=subset_names, group=groups)
-        if type(subsets) is Subset:
-            subsets = [subsets]
+        subsets = self._get_subsets(path=paths, name=subset_names, group=groups, listalways=True)
         
         local_subsets = subsets
         if global_selection is not None:
@@ -2905,7 +2904,7 @@ class Data(plot.PlotMethodsMixin):
         -------
         fig : ``matplotlib.figure.Figure``
             
-        axes : list if axes
+        axes : ``matplotlib.axes.Axes`` or array of ``matplotlib.axes.Axes``
 
         '''
         # Raises
