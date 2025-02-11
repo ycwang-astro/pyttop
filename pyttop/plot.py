@@ -19,17 +19,17 @@ Axes = matplotlib.axes.Axes
 
 #%% config
 # Configuration that controls the behavior of Data.plot() (or Data.plots()) when a PlotFunction object is passed to it.
-# This is the global and default config; customize it for each individual plot function, say `plot`, 
+# This is the global and default config; customize it for each individual plot function, say `plot`,
 # by directly modifying `plot.config`.
 DEFAULT_CONFIG = {
     'ax_label_kwargs_generator': # function to generate the kwargs, to be passed to axis, that sets the axis labels
         lambda labels: # input labels
-            dict(zip(['xlabel', 'ylabel', 'zlabel'], labels),), 
+            dict(zip(['xlabel', 'ylabel', 'zlabel'], labels),),
             # returns dict like {'xlabel': xlabel, ...}
     }
 
 #%% fundamental classes
-# TODO: the implementation of PlotFunction, 
+# TODO: the implementation of PlotFunction,
 #       the two supported signatures [func(...) and func(ax)(...)]
 #       and its support in Data.plot, Data.plots
 #       might be improved to make them more elegant.
@@ -41,7 +41,7 @@ class PlotFunction():
             self.ax_callback = func.ax_callback
         else:
             self.ax_callback = lambda ax: None
-        
+
         if input_ax:
             plot_func = func(Axes)
             self.func_doc = plot_func.__doc__
@@ -54,20 +54,20 @@ class PlotFunction():
             self.func_defname = func.__name__ # the real name in the definition of plot function
             self.func_sig = (signature(self.func))
         self.func_def = self.func_name + str(self.func_sig) + '\n\n' + self.func_name + '(axis)' + str(self.func_sig)
-        
+
         # TODO: below may cause bugs
         self.func_def = self.func_def.replace('(self, ', '(')
         if self.func_doc is None: self.func_doc = ''
-        if self.func_doc and self.func_doc[0] == '\n': 
+        if self.func_doc and self.func_doc[0] == '\n':
             self.func_doc = self.func_doc[1:]
-        
+
         # self.__call__.__func__.__doc__ = self.func_doc
-        
+
         # config for Data.plot() or Data.plots()
         self.config = deepcopy(DEFAULT_CONFIG)
         if hasattr(self.func, 'config'):
             self.config.update(self.func.config)
-    
+
     def _call_with_ax(self, ax, execute_callback=False):
         if self.input_ax:
             @wraps(self.func(ax))
@@ -88,8 +88,8 @@ class PlotFunction():
                 return out
         plot.ax_callback = self.ax_callback
         return plot
-    
-    def __call__(self, *args, **kwargs): 
+
+    def __call__(self, *args, **kwargs):
         # calling it as a standalone function
         # decide how it is called
         call_with_ax = False
@@ -101,7 +101,7 @@ class PlotFunction():
             ax = args[0]
             if isinstance(ax, Axes):
                 call_with_ax = True
-        
+
         # call the plot function, and execute ax_callback
         if call_with_ax: # f is called as f(ax), f(ax=ax):
             return self._call_with_ax(ax, execute_callback=True)
@@ -118,22 +118,22 @@ class PlotFunction():
         # plot function may be called several times in one subplot,
         # but ax_callback should be called ONLY ONCE.
         return self._call_with_ax(ax, execute_callback=execute_callback)
-    
-    def call_without_ax(self, *args, **kwargs): 
+
+    def call_without_ax(self, *args, **kwargs):
         ax = plt.gca()
         return self._call_with_ax(ax)(*args, **kwargs)
         # return self.ax_callback
-    
+
     # def help(self):
     #     print(self.func_doc)
-    
+
     def __getattr__(self, attr):
         return getattr(self.func, attr)
-        
+
     @property
     def __doc__(self): # manually generate doc
         return self.func_def + '\n\nFunction modified to accomodate pyttop.table.Data. Original documentaion shown below:\n\n' + self.func_doc + '\n\n'
-    
+
     @property
     def __name__(self):
         return self.func_name
@@ -142,15 +142,15 @@ class DelayedPlot():
     def __init__(self):
         raise NotImplementedError()
         pass
-    
+
     def __call__(self):
         pass
-    
+
 #%% stand-alone functions
 def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f', yfmt='.2f', marker='', style='through', label=None, ax=None, **lineargs):
     '''
     Plot a point with a marker,
-    as well as a horizontal line and a vertical line, 
+    as well as a horizontal line and a vertical line,
     both going through the point.
 
     Parameters
@@ -172,13 +172,13 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
     ytxt : str, optional
         If not None, the y label text will be overwritten by this.
     xfmt : str, optional
-        The format string for x label (if xtxt not specified). 
+        The format string for x label (if xtxt not specified).
         The default is '.2f'.
     yfmt : str, optional
-        The format string for y label (if ytxt not specified). 
+        The format string for y label (if ytxt not specified).
         The default is '.2f'.
     marker : optional
-        The marker of the point. 
+        The marker of the point.
         The default is ''.
     style : str, optional
         'through' or 'axis'.
@@ -188,12 +188,12 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
         The label for the lines.
     ax : optional
         The axis where you want to plot the lines.
-    **lineargs : 
+    **lineargs :
         Keyword arguments for lines.
     '''
-    
+
     artists = {}
-    
+
     if ax is None:
         ax = plt.gca()
     xmin, xmax = ax.get_xlim()
@@ -208,7 +208,7 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
         dy = np.log10(ymax) - np.log10(ymin)
     else:
         dy = ymax - ymin
-    
+
     if x is None and y is None:
         raise ValueError('You should at least specify one of the parameters: "x" and "y".')
 
@@ -220,8 +220,8 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
         if not isinstance(xpos, Iterable):
             xposs = [xpos]*len(xs)
         else:
-            xposs = xpos 
-            
+            xposs = xpos
+
     if y is not None:
         if isinstance(y, Iterable):
             ys = y
@@ -230,19 +230,19 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
         if not isinstance(ypos, Iterable):
             yposs = [ypos]*len(ys)
         else:
-            yposs = ypos 
-    
+            yposs = ypos
+
     if x is None:
         xs = [xmax]*len(ys)
     if y is None:
         ys = [ymax]*len(xs)
-    
+
     plotx, ploty = False, False
     if x is not None:
         plotx = True
     if y is not None:
         ploty = True
-    
+
     if plotx:
         for i, info in enumerate(zip(xs, xposs, ys)):
             x, xpos, y = info
@@ -303,14 +303,14 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
         artists['scat'] = ax.scatter(x, y, marker=marker, c='k')
 
     return artists
-            
+
 #%% wrapper for plot functions
 def plotFuncAx(f):
     '''
-    Makes a function compatible to pyttop.table.Data. 
+    Makes a function compatible to pyttop.table.Data.
 
     Usage::
-        
+
         @plotFuncAx
         def f(ax): # inputs axis object `ax`
             def plot_func(<your inputs ...>):
@@ -321,10 +321,10 @@ def plotFuncAx(f):
 
 def plotFunc(f):
     '''
-    Makes a function compatible to pyttop.table.Data. 
+    Makes a function compatible to pyttop.table.Data.
 
     Usage::
-        
+
         @plotFunc
         def plot_func(<your inputs ...>):
             <make the plot>
@@ -344,7 +344,7 @@ def plotFuncAuto(f):
         return plotFunc(f)
     else:
         return plotFuncAx(f)
-        
+
 
 #%% axis callbacks
 def colorbar(ax):
@@ -365,7 +365,7 @@ class Scatter():
         self.autobar = None
         # self.ax = None
         # self.s = None
-    
+
     @staticmethod
     def _decide_autobar(c, x, autobar):
         # parse c input and decide autobar or not
@@ -381,7 +381,7 @@ class Scatter():
                     return True
                 else:
                     return False
-    
+
     def __call__(self, ax):
         # if self.ax is not None and self.ax != ax:
         #     self.params = []
@@ -395,7 +395,7 @@ class Scatter():
             # if self.s:
             #     return self.s
         return scatter
-    
+
     def ax_callback(self, ax):
         try:
             if self.autobar: # decide colorbar information
@@ -406,43 +406,43 @@ class Scatter():
                     vmax = None,
                     barlabel = None,
                     cmap = None)
-                
+
                 for param in self.params:
                     for name in ['vmin', 'vmax', 'barlabel', 'cmap']: # check consistency for different calls
                         if barinfo[name] is None:
                             barinfo[name] = param[name]
                         elif barinfo[name] != param[name]:
                             raise ValueError(f'colorbar cannot be generated due to inconsistency of "{name}": {barinfo[name]} != {param[name]}')
-                        
+
                     cs.append(param['c'])
-                
+
                 # decide vmin, vmax
                 if barinfo.vmin is None:
                     barinfo.vmin = min([np.min(c) for c in cs])
                 if barinfo.vmax is None:
                     barinfo.vmax = max([np.max(c) for c in cs])
-                
+
                 param_exclude = ['cmap', 'vmin', 'vmax', 'autobar', 'barlabel']
                 color_param_keys = ['vmin', 'vmax', 'cmap']
                 for param in self.params:
                     param = {key: value for key, value in param.items() if key not in param_exclude}
                     colorparams = {key: value for key, value in barinfo.items() if key in color_param_keys}
                     self.s = ax.scatter(**param, **colorparams)
-                
+
                 # make colorbar
                 cax = plt.colorbar(self.s, ax=ax)
                 cax.set_label(barinfo.barlabel)
-                
+
             else:
                 param_exclude = ['autobar', 'barlabel']
                 for param in self.params:
                     param = {key: value for key, value in param.items() if key not in param_exclude}
                     self.s = ax.scatter(**param)
-        
+
         finally:
             self.params = []
 
-scatter = plotFuncAx(Scatter())    
+scatter = plotFuncAx(Scatter())
 
 @plotFuncAx
 def plot(ax):
@@ -471,7 +471,7 @@ def hist2d(ax):
     def _hist2d(x, y, *args, **kwargs):
         # since plt.hist2d does not handle masked values, let us consider this here
         # (mask lost in: plt.hist2d -> np.histogram2d -> np.histogramdd -> np.atleast_2d -> call of asanyarray() in np.core.shape_base)
-        
+
         # mask = np.full(x.shape, False)
         # if np.ma.is_masked(x):
         #     mask |= x.mask
@@ -502,7 +502,7 @@ defaults = {
 #     def decorator(func):
 #         @wraps(func)
 #         def wrapper(*args, **kwargs):
-            
+
 #             pass
 #         return wrapper
 #     return decorator
@@ -518,7 +518,7 @@ class PlotMethodsMixin():
             kwargs['kwcols'] = {}
         if 'cols' not in kwargs:
             kwargs['cols'] = []
-            
+
         for key in keys:
             value = locals[key]
             if isinstance(value, str): # regarded as a column name
@@ -529,12 +529,12 @@ class PlotMethodsMixin():
             else:
                 kwargs[key] = value
         return kwargs
-    
+
     # @wraps(plt.plot)
     def lplot(self, *args, **kwargs):
         # an real counterpart of plt.plot may be difficult to implement
         raise NotImplementedError()
-    
+
     # @wraps(plt.scatter)
     def scatter(self, x, y, s=None, c=None, **kwargs):
         # TODO: docstring
@@ -543,7 +543,7 @@ class PlotMethodsMixin():
         self.__class__._process_colname_kwargs(
             ['x', 'y', 's', 'c'], locals(), argkeys=['x', 'y'])
         return self.plots('scatter', **kwargs)
-    
+
     # @wraps(plt.hist)
     def hist(self, x, weights=None, **kwargs):
         # TODO: docstring
@@ -551,4 +551,4 @@ class PlotMethodsMixin():
         self.__class__._process_colname_kwargs(
             ['x', 'weights'], locals(), argkeys=['x'])
         return self.plots('hist', **kwargs)
-    
+
