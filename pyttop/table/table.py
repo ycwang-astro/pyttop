@@ -1727,8 +1727,84 @@ class Data(plot.PlotMethodsMixin):
         else:
             raise ValueError(f"Unrecognized action '{action}'.")
 
-    def sort(self, *args, **kwargs):
-        raise NotImplementedError('operation not supported yet; sort a table BEFORE converting it to a `Data` object')
+    def sort(self, keys, *, keep_subsets=False, kind=None, reverse=False):
+        '''
+        Returns a new ``Data`` instance with the table sorted according to one or more keys (columns).
+
+        Unlike the ``sort()`` method of ``astropy.table.Table`` (i.e., ``data.t.sort()``),
+        this method does not perform an in-place sort.
+
+        Parameters
+        ----------
+        keys : str or list of str
+            The column name(s) to order the table by.
+        keep_subsets : bool, optional
+            If ``True``, the subsets will be preserved. The default is ``False``.
+        kind : {'quicksort', 'mergesort', 'heapsort', 'stable'}, optional
+            Sorting algorithrm used by ``numpy.argsort``.
+        reverse : bool, optional
+            If ``True``, sort in reverse order. The default is ``False``.
+
+        Returns
+        -------
+        ``pyttop.table.Data``
+            A ``Data`` instance with the table sorted.
+
+        '''
+        # raise NotImplementedError('operation not supported yet; sort a table BEFORE converting it to a `Data` object')
+
+        # create a new Data and avoid any in-place modifications
+        table = self.t.copy()
+        table.sort(keys, kind=kind, reverse=reverse)
+
+        new_name = f'({self.name}).SORTED'
+        sorted_data = Data(table, name=new_name)
+
+        # handle meta
+        sorted_data.meta.clear()
+        sorted_data._path = f"(data '{self.name}' sorted)"
+        sorted_data.meta.update({
+            'path': sorted_data._path,
+            'sort': OrderedDict({
+                'keys': keys,
+                'kind': kind,
+                'reverse': reverse,
+                }),
+            'notes': f"The metadata for the orignal data '{self.name}' is recorded in 'meta'.",
+            'meta': self.meta,
+            })
+
+        if keep_subsets:
+            # handle subsets
+            indexes = self.t.argsort(keys, kind=kind, reverse=reverse)
+            sorted_data.subset_groups = self.__class__._cut_subset_groups(self.subset_groups, indexes, sorted_data)
+
+        return sorted_data
+
+        # ## in-place solution
+        # # This operation should be discouraged, especially when any subset is defined.
+        # # remove any matches
+        # self.reset_match()
+
+        # # operations on astropy Table
+        # self.t.sort(keys, kind=kind, reverse=reverse)
+
+        # # handle subsets
+        # if not keep_subsets:
+        #     self.clear_subsets()
+        # else: # update subsets
+        #     indexes = self.t.argsort(keys, kind=kind, reverse=reverse)
+        #     # sort() is performed in-place rather than creating a new Data with the original Data intact.
+        #     # Detach all old subset from this Data.
+        #     # However, one **caveat** is that it can never handle those not recorded in this data.
+        #     sorted_subset_groups = self.__class__._cut_subset_groups(self.subset_groups, indexes)
+
+        #     for group in self.subset_groups:
+        #         for subset in self.subset_groups[group]:
+        #             self.subset_groups[group][subset]._data = None
+
+        #     self.subset_groups = sorted_subset_groups
+
 
     #### metadata
 
@@ -1903,6 +1979,8 @@ class Data(plot.PlotMethodsMixin):
         # subset_objects = []
         subset_overwritten = []
         for subset in subsets:
+            if not isinstance(subset, Subset):
+                raise ValueError(f"expected pyttop.table.Subset, got {type(subset)}")
             subset.eval_(self, self.subset_groups[group].keys())
             name = subset.name
             if group == 'default' and name == 'all':
@@ -2024,6 +2102,8 @@ class Data(plot.PlotMethodsMixin):
             Name of the subset group to be cleared.
             If not specified, all user-defined subsets are deleted.
         '''
+        # Note: this only removes the subset from the list; subset._data still unchanged
+
         if group in (None, 'all'): # clear all groups
             # print('INFO: subsets reset to default.')
             self.subset_groups = {
