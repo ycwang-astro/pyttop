@@ -2,35 +2,37 @@
 """
 Created on Sat Jul 30 2022
 
-@author: Yuchen Wang
+@author: Yu-Chen Wang
 
 Main tools to store, operate and visualize data tables.
 """
 
+import os
+import warnings
+from itertools import repeat, chain
+from functools import wraps
+from collections.abc import Iterable
+from collections import OrderedDict, Counter
+from keyword import iskeyword
+import inspect
+import pickle
+# import time
+from copy import deepcopy
+from io import StringIO
+import re
+import json
+from difflib import get_close_matches
+import multiprocessing as mp
+import zipfile
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.table import Column, Table, hstack
 # from astropy.io import ascii as apascii
-from ..utils import objdict, save_pickle, load_pickle, keyword_alias, bitwise_all, pause_and_warn, find_dup, SummaryDict, create_method_alias
+from ..utils import objdict, save_pickle, load_pickle, keyword_alias, bitwise_all, pause_and_warn, find_dup, SummaryDict, create_method_alias, omit_middle
+from ..config import config
 from .. import plot
 from .. import __version__
-import warnings
-import multiprocessing as mp
-from collections.abc import Iterable
-from collections import OrderedDict, Counter
-import inspect
-from itertools import repeat, chain
-from functools import wraps
-import os
-import zipfile
-import pickle
-from copy import deepcopy
-import json
-import re
-from keyword import iskeyword
-from io import StringIO
-from difflib import get_close_matches
-# import time
+from .exceptions import FailedToLoadError, SubsetError, SubsetInconsistentError, MergeError, SubsetMergeError, SubsetNotFoundError, GroupNotFoundError, ColumnNotFoundError
 
 try:
     import pandas as pd # used to handle pd.DataFrame input
@@ -72,47 +74,6 @@ plot_array_funcs = plot_funcs
 #     'hist2d': lambda ax: ax.hist2d,
 #     'errorbar': lambda ax: ax.errorbar,
 #     }
-
-class FailedToLoadError(Exception):
-    pass
-
-class FailedToEvaluateError(Exception):
-    pass
-
-class SubsetError(Exception):
-    pass
-
-class SubsetInconsistentError(SubsetError):
-    pass
-
-class MergeError(Exception):
-    pass
-
-class SubsetMergeError(MergeError):
-    pass
-
-class SubsetNotFoundError(LookupError):
-    def __init__(self, name, kind='path', suggest_names=None):
-        if kind == 'path':
-            suggest_str = " (did you mean: '{}')".format("', '".join(suggest_names)) if suggest_names else ''
-            info = f"'{name}'. Maybe missing/incorrect group name or incorrect subset name{suggest_str}?"
-        elif kind in ['subset', 'name']:
-            info = f"'{name}'"
-            if suggest_names:
-                info += ". Did you mean: '{}'".format("', '".join(suggest_names))
-        else:
-            raise ValueError(f"unknown kind '{kind}'")
-        super().__init__(info)
-
-class GroupNotFoundError(LookupError):
-    def __init__(self, name, suggest_names=None):
-        info = f"'{name}'"
-        if suggest_names:
-            info += ". Did you mean: '{}'".format("', '".join(suggest_names))
-        super().__init__(info)
-
-class ColumnNotFoundError(LookupError):
-    pass
 
 class Subset():
     '''
@@ -443,6 +404,12 @@ class Subset():
         if '/' in self.name:
             self.name = self.name.replace('/', '(slash)')
 
+        # check label
+        if self.label in ['All', 'all'] and not np.all(self.selection):
+            warnings.warn(
+                f"{self} is not the entire set but the label is '{self.label}'",
+                stacklevel=3)
+
 
     def _cut(self, index, new_data=None):
         # return a cut Subset (cut with ``index``)
@@ -512,17 +479,24 @@ class Subset():
             return method(self, subset)
         return new_method
 
+    def _isall(self):
+        # used in __and__ when combining labels
+        # 0.4.3 update: consider better ways to decide whether it is "all" (in case, e.g., a subset labelled "All" is not all)
+        # return self.label == 'All' # old definition
+        # return self.label == 'All' and np.all(self.selection) # stricter condition
+        return self is self.data.get_subsets('default/all') # strictest condition
+
     @_check_operand
     @_merge_data_info
     def __and__(self, subset): # the & (bitwise AND)
         selection = self.selection & subset.selection
         name = f'{self.name} AND {subset.name}'
         expression = f'({self.expression}) AND ({subset.expression})'
-        if self.label != 'All' and subset.label != 'All':
+        if (not self._isall()) and (not subset._isall()):
             label = f'{self.label}, {subset.label}'
-        elif self.label == 'All':
+        elif self._isall():
             label = f'{subset.label}'
-        else: # subset.label == 'All'
+        else: # subset._isall()
             label = f'{self.label}'
 
         new_subset = Subset(selection, name, expression, label)
@@ -628,7 +602,7 @@ class Data(plot.PlotMethodsMixin):
             # or ``astropy.table.Table()`` (if applicable).
 
         if isinstance(data, self.__class__):
-            return data
+            raise TypeError('input is already a Data object')
 
         if type(data) is str and 'format' in kwargs and kwargs['format'] in ['data', 'pkl']: # should use Data.load
             raise ValueError(f"to load data file saved with Data.save, use Data.load('{data}', format='{kwargs['format']}')")
@@ -1128,11 +1102,12 @@ class Data(plot.PlotMethodsMixin):
             the columns IN ``merge_columns`` AND NOT IN ``ignore_columns`` are merged.
             The default is {}.
         innames : dict, optional
-            A dict like ``{data_name: rename_name}``.
-            This is used to generate unique output column names in case of conflicts (i.e., same column names in different data objects).
-            By default, columns will be renamed as '{column_name}_{data_name}'.
-            If ``data_name`` is included in ``innames``, the corresponding '{column_name}_{rename_name}' will be used instead.
+            A dict in the form of ``{data_name: rename_name}``.
+            This is used to generate unique output column names in case of conflicts (i.e., same column names in different ``Data`` objects).
+            By default, columns are renamed as '{column_name}_{data_name}'.
+            If a ``data_name`` is included in ``innames``, the corresponding '{column_name}_{rename_name}' will be used instead.
             This can be used to avoid long column names.
+            If subsets are kept (``keep_subsets=True``), conflicts in subset or group names will be handled in a similar manner.
             The default is {}.
         outname : str, optional
             The name of the merged data.
@@ -1310,8 +1285,8 @@ class Data(plot.PlotMethodsMixin):
 
         # merge subsets
         if keep_subsets:
-            # TODO: use data_renames rather than data_names ?
-            merged_subset_groups = Data._merge_subset_groups(data_subset_groups, data_names)
+            # data_names changed to data_renames in v0.4.3
+            merged_subset_groups = self.__class__._merge_subset_groups(data_subset_groups, data_renames, verbose=verbose)
             for groupname, group in merged_subset_groups.items():
                 for subsetname, subset in group.items():
                     subset._data = matched_data
@@ -1613,10 +1588,10 @@ class Data(plot.PlotMethodsMixin):
         try:
             result = eval(_eval_expression, globals(), localvars)
         except SyntaxError as e:
-            msg = 'invalid syntax (are you trying to directly refer to unsupported column names?)'
+            msg = f"'{expression}': invalid syntax (are you trying to directly refer to unsupported column names?)"
             raise SyntaxError(msg) from e
         except NameError as e:
-            msg = f"Unrecognized name '{e.name}'. Check if you have misspelled a column name. If you are using a name defined in your script, consider passing '{e.name}={e.name}' when calling eval()."
+            msg = f"'{expression}': Unrecognized name '{e.name}'. Check if you have misspelled a column name. If you are using a name defined in your script, consider passing '{e.name}={e.name}' when calling eval()."
             raise NameError(msg) from e
 
         if to_col is not None:
@@ -1984,7 +1959,7 @@ class Data(plot.PlotMethodsMixin):
             subset.eval_(self, self.subset_groups[group].keys())
             name = subset.name
             if group == 'default' and name == 'all':
-                raise ValueError("Subset name 'all' in the 'default' group is reserved and cannot be re-written.")
+                raise ValueError("Subset name 'all' in the 'default' group is reserved and cannot be overwritten.")
             if name in self.subset_groups[group].keys():
                 subset_overwritten.append(f'{group}/{name}')
             self.subset_groups[group][name] = subset
@@ -2392,6 +2367,11 @@ class Data(plot.PlotMethodsMixin):
         ``Data``
 
         '''
+        # force : bool, optional
+        #     If set to True, the sub-dataset will be returned anyway even if
+        #     the given subset it not associated with (i.e., describing a subset of)
+        #     this data. The default is False.
+
         return_list = True
         if isinstance(subsets, Subset):
             subsets = [subsets]
@@ -2399,6 +2379,11 @@ class Data(plot.PlotMethodsMixin):
 
         subset_datas = []
         for subset in subsets:
+            # if not force:
+            #     self._check_subset_association(subset, action='raise')
+                # and not self._subset_associates(subset):
+                # raise ValueError(f'the provided {subset} is not a subset of {self}')
+
             index = np.array(subset)
             table_subset = self.t[index]
             new_name = f'({self.name}).SUBS({subset.name})'
@@ -2727,7 +2712,8 @@ class Data(plot.PlotMethodsMixin):
         if ax is None:
             ax = plt.gca()
 
-        if type(global_selection) in (str, tuple, list, set):
+        # if type(global_selection) in (str, tuple, list, set):
+        if global_selection is not None:
             global_selection = bitwise_all(self._get_subsets(path=global_selection, listalways=True))
 
         subset_names = subsets
@@ -2904,7 +2890,7 @@ class Data(plot.PlotMethodsMixin):
             The default is None.
         kwcols : dict, optional
             Names of data columns that are passed to the plotting function as keyword arguments.
-            For example, if ``kwcols={'x': 'col1', 'y':'col2'}``, the plotting function will be called by::
+            For example, if ``kwcols={'x': 'col1', 'y': 'col2'}``, the plotting function will be called by::
 
                 func(x=data['col1'], y=data['col2'])
 
@@ -3030,7 +3016,8 @@ class Data(plot.PlotMethodsMixin):
         else:
             func = plot.plotFuncAuto(func)
 
-        if type(global_selection) in (str, tuple, list, set):
+        # if type(global_selection) in (str, tuple, list, set):
+        if global_selection is not None:
             global_selection = bitwise_all(self._get_subsets(path=global_selection, listalways=True))
 
         # special case for my scatter()
@@ -3376,6 +3363,7 @@ class Data(plot.PlotMethodsMixin):
 
     def __repr__(self):
         name = f"'{self.name}'" if self.name is not None else 'without name'
+        name = omit_middle(name, config.data_name_repr_maxlen + 2) # 2 from "'"
         return f"<Data {name}>"
 
     def __len__(self):

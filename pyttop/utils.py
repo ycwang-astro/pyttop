@@ -14,7 +14,7 @@ from operator import iand, ior
 
 from typing import Union, Sequence
 
-#%% array/Iterable operation
+#%% array/Iterable operations
 
 def find_idx(array, values):
     '''
@@ -100,6 +100,17 @@ def bitwise_all(iterable):
 
 def bitwise_or(iterable):
     return reduce(ior, iterable)
+
+#%% string operations
+def omit_middle(s: str, maxlen: int = 100) -> str:
+    omit_str = " [...] "
+    omitl = len(omit_str)
+    if len(s) <= maxlen:
+        return s
+    if maxlen <= omitl:
+        raise ValueError('maxlen too small')
+    halfl = (maxlen - omitl) // 2
+    return s[:halfl] + omit_str + s[-(maxlen - omitl - halfl):]
 
 #%% basic types
 

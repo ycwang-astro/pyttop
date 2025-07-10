@@ -192,6 +192,10 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
         Keyword arguments for lines.
     '''
 
+    # check input
+    if style not in ['through', 'axis']:
+        raise ValueError(f"'style' should be 'through' or 'axis', got '{style}'")
+
     artists = {}
 
     if ax is None:
