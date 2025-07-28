@@ -7,32 +7,27 @@ Created on Sat Jul 30 2022
 Main tools to store, operate and visualize data tables.
 """
 
-import os
-import warnings
-from itertools import repeat, chain
-from functools import wraps
-from collections.abc import Iterable
-from collections import OrderedDict, Counter
-from keyword import iskeyword
 import inspect
-import pickle
-# import time
-from copy import deepcopy
-from io import StringIO
-import re
+import io
 import json
-from difflib import get_close_matches
 import multiprocessing as mp
+import os
+import pickle
+import re
+import warnings
 import zipfile
+from collections import OrderedDict, Counter
+from collections.abc import Iterable
+from copy import deepcopy
+from difflib import get_close_matches
+from functools import wraps
+from itertools import repeat, chain
+from keyword import iskeyword
+
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.table import Column, Table, hstack
 # from astropy.io import ascii as apascii
-from ..utils import objdict, save_pickle, load_pickle, keyword_alias, bitwise_all, pause_and_warn, find_dup, SummaryDict, create_method_alias, omit_middle
-from ..config import config
-from .. import plot
-from .. import __version__
-from .exceptions import FailedToLoadError, SubsetError, SubsetInconsistentError, MergeError, SubsetMergeError, SubsetNotFoundError, GroupNotFoundError, ColumnNotFoundError
 
 try:
     import pandas as pd # used to handle pd.DataFrame input
@@ -47,6 +42,12 @@ except ImportError:
     has_tqdm = False
 else:
     has_tqdm = True
+
+from .. import __version__
+from ..config import config
+from ..plot import base as plot 
+from ..utils import objdict, save_pickle, load_pickle, keyword_alias, bitwise_all, pause_and_warn, find_dup, SummaryDict, method_alias, omit_middle
+from .exceptions import FailedToLoadError, SubsetError, SubsetInconsistentError, MergeError, SubsetMergeError, SubsetNotFoundError, GroupNotFoundError, ColumnNotFoundError
 
 subplot_arrange = {
     1: [1, 1],
@@ -544,7 +545,8 @@ class Subset():
         namestr = f"Subset '{self.name}'" if self.name is not None else 'Unnamed Subset'
         if self.data is not None:
             datastr = " of Data "
-            datastr += f"'{self.data_name}'" if self.data_name is not None else 'without name'
+            short_data_name = self.data._short_name()
+            datastr += f"'{short_data_name}'" if short_data_name is not None else 'without name'
         else:
             datastr = ''
         try:
@@ -567,18 +569,32 @@ class Subset():
         self.__dict__.update(state)
 
 
+@method_alias
 class Data(plot.PlotMethodsMixin):
     '''
     A class to store, manipulate and visualize data tables.
 
     Parameters
     ----------
-    data : str, ``astropy.table.Table``, etc.
-        Path to the data file, an ``astropy.table.Table`` object, or anything that can be initialized as an ``astropy.table.Table`` object.
+    data : str, file-like, astropy.table.Table, pandas.DataFrame, or similar
+        The data table, which can be one of the following:
+            
+        - A string path to a data file
+        - A file-like object (e.g., returned by ``open()``)
+        - An ``astropy.table.Table`` object
+        - A ``pandas.DataFrame``, or any object that can be initialized as an ``astropy.table.Table``
     name : str, optional
         The name of this Data object. This name will be used in many cases to distinguish datasets. The default is None.
     **kwargs :
-        Keyword arguments passed when initializing an ``astropy.table.Table`` object.
+        Additional keyword arguments passed when initializing an ``astropy.table.Table`` object.
+        
+        Common arguments include:
+
+        format : str, optional
+            File format specifier for ``astropy.table.Table.read()`` 
+            (relevant when reading from a file path or file-like object). 
+            For a list of supported formats see the 
+            `Astropy documentation <https://docs.astropy.org/en/stable/io/unified_table.html#built-in-table-readers-writers>`_.
 
     Notes
     -----
@@ -619,6 +635,12 @@ class Data(plot.PlotMethodsMixin):
         if type(data) is str: # got a path
             self.t = Table.read(data, **kwargs)
             self._path = data
+        elif isinstance(data, io.IOBase): # got a file-like object
+            self.t = Table.read(data, **kwargs) # see astropy.io.registry.core.UnifiedInputRegistry.read
+            try:
+                self._path = data.name
+            except AttributeError: # the object does not have a name (e.g., BytesIO)
+                self._path = f'(initalized from a {type(data)} object)'
         elif isinstance(data, Table): # got astropy table
             self.t = data
             self._path = '(initialized from Table)'
@@ -2042,6 +2064,11 @@ class Data(plot.PlotMethodsMixin):
             When a group with ``group_name`` already exists, whether to overwrite the group.
             The default is False.
 
+        Returns
+        -------
+        list
+            A list of the created subsets.
+
         Raises
         ------
         ValueError
@@ -2061,11 +2088,15 @@ class Data(plot.PlotMethodsMixin):
 
         # TODO: use self.add_subsets (with overwrite=True) [make sure to test the changes before using it!]
         self.subset_groups[group_name] = {}
+        subsets = []
         for range_ in ranges:
             subset = Subset.by_range(**{column: range_})
             subset.eval_(self)
             name = subset.name
             self.subset_groups[group_name][name] = subset
+            subsets.append(subset)
+        
+        return subsets
 
     def clear_subsets(self, group=None):
         '''
@@ -3200,7 +3231,7 @@ class Data(plot.PlotMethodsMixin):
                         assert type(table) == Table
                         if Data.table_format.startswith('ascii.'): # uses astropy.io.ascii
                             # get the string
-                            with StringIO() as sf:
+                            with io.StringIO() as sf:
                                 table.write(sf, format=Data.table_format)
                                 table_str = sf.getvalue()
                             table_str = table_str.encode()
@@ -3315,7 +3346,7 @@ class Data(plot.PlotMethodsMixin):
                         else:
                             raise ValueError(f'unrecognized saving method: {method}')
             except zipfile.BadZipFile as e:
-                raise ValueError(f'The file is not a ".data" file. Did you mean "Data(\'{path}\', <...>)"?') from e
+                raise ValueError(f'The file is not a ".data" file generated by PyTTOP. Did you mean "Data(\'{path}\', <...>)"?') from e
             except KeyError as e:
                 ver = f" ({save_meta['package_version']})" if save_meta and 'package_version' in save_meta else ''
                 raise FailedToLoadError(f"Failed to load '{path}': is not a '.data' file or is saved with an older version{ver} of pyttop.") from e
@@ -3359,12 +3390,17 @@ class Data(plot.PlotMethodsMixin):
     def copy(self):
         raise NotImplementedError()
 
+    def _short_name(self):
+        if self.name is None:
+            return None
+        return omit_middle(self.name, config.data_name_repr_maxlen)
+
     ## below are magic methods
 
     def __repr__(self):
-        name = f"'{self.name}'" if self.name is not None else 'without name'
-        name = omit_middle(name, config.data_name_repr_maxlen + 2) # 2 from "'"
-        return f"<Data {name}>"
+        short_name = self._short_name()
+        namestr = f"'{short_name}'" if short_name is not None else 'without name'
+        return f"<Data {namestr}>"
 
     def __len__(self):
         return len(self.t)
@@ -3493,4 +3529,4 @@ class Data(plot.PlotMethodsMixin):
         'subset_summary': ['subsum', 'ss'],
         }
 
-create_method_alias(Data, Data._method_aliases)
+# create_method_alias(Data, Data._method_aliases)

@@ -297,7 +297,7 @@ def load_pickle(fname):
 
 # def save_zip(fname, ext='zip', overwrite=False)
 
-#%% wrappers
+#%% function decorators
 def keyword_alias(state='deprecated', /, **aliases):
     '''
     Returns wrapper for alias of keyword argument.
@@ -336,7 +336,8 @@ def keyword_alias(state='deprecated', /, **aliases):
         return fnew
     return wrapper
 
-#%% class modifier
+#%% class decorators
+# a function that modifies cls in-place
 def create_method_alias(cls, method_aliases):
     def create_new_method(orig_method):
         @wraps(orig_method)
@@ -346,6 +347,31 @@ def create_method_alias(cls, method_aliases):
         return method
     for orig, aliases in method_aliases.items():
         orig_method = getattr(cls, orig)
+        if isinstance(aliases, str):
+            aliases = [aliases]
         for alias in aliases:
             setattr(cls, alias, create_new_method(orig_method))
 
+# the decorator
+def method_alias(aliases=None):
+    def _method_alias(cls):
+        aliases_map = aliases
+        namestr = ''
+        if callable(aliases_map) or aliases_map is None: # used as @method_alias or @method_alias()
+            aliases_map = '_method_aliases' # default attribute name
+        if isinstance(aliases_map, str):
+            namestr = f'{cls.__name__}.{aliases_map}: '
+            try:
+                aliases_map = getattr(cls, aliases_map)
+            except AttributeError as e:
+                raise ValueError(f"class '{cls.__name__}' does not have attribute '{aliases_map}'") from e
+        if not isinstance(aliases_map, dict):
+            raise TypeError(f'{namestr}expected a dict, got {type(aliases_map)}')
+        
+        create_method_alias(cls, aliases_map)
+        return cls
+
+    if callable(aliases): # used as @method_alias
+        return _method_alias(aliases)
+    
+    return _method_alias
