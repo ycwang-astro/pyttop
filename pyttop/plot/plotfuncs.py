@@ -11,54 +11,64 @@ from .base import plotFunc, plotFuncAx
 from collections.abc import Iterable
 
 __all__ = [
-    'annotate'
+    'refline', 'annotate',
     ]
 
-def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f', yfmt='.2f', marker='', style='through', label=None, ax=None, **lineargs):
+@plotFunc
+def refline(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f', yfmt='.2f', marker='', style='through', label=None, ax=None, **lineargs):
     '''
-    Plot a point with a marker,
-    as well as a horizontal line and a vertical line,
-    both going through the point.
+    Plot reference line(s) and optionally marker(s) at given position(s).
+
+    This function adds vertical and/or horizontal lines to the plot, 
+    anchored at the specified `x` and/or `y` values. Optionally, 
+    marker(s) can be drawn at the intersection(s), and text annotations can 
+    be shown on the reference line(s) to indicate the values.
 
     Parameters
     ----------
-    x : number or Iterable object, optional
-        The x position(s). The default is None.
-    y : number or Iterable object, optional
-        The y position(s). The default is None.
+    x : float or Iterable, optional
+        The x-coordinate(s) at which to draw vertical reference line(s). The default is None.
+    y : float or Iterable, optional
+        The y-coordinate(s) at which to draw horizontal reference line(s). The default is None.
     xpos : float or None, optional
-        The horizontal position of the text relative to the width of the plot.
-        If it is None, no text added.
-        The default is .1
+        Relative x (horizontal) position (in axes fraction) for y-value annotation text.
+        If None, no text is shown.
+        The default is 0.1.
     ypos : float or None, optional
-        The vertical position of the text relative to the height of the plot.
-        If it is None, no text added.
-        The default is .1
+        Relative y (vertical) position (in axes fraction) for x-value annotation text.
+        If None, no text is shown.
+        The default is 0.1.
     xtxt : str, optional
         If not None, the x label text will be overwritten by this.
     ytxt : str, optional
         If not None, the y label text will be overwritten by this.
     xfmt : str, optional
-        The format string for x label (if xtxt not specified).
-        The default is '.2f'.
+        Format string for x label (if ``xtxt`` not specified).
+        The default is ``'.2f'``.
     yfmt : str, optional
-        The format string for y label (if ytxt not specified).
-        The default is '.2f'.
+        Format string for y label (if ``ytxt`` not specified).
+        The default is ``'.2f'``.
     marker : optional
-        The marker of the point.
-        The default is ''.
-    style : str, optional
-        'through' or 'axis'.
-        'through': plot line(s) across the whole axis.
-        'axis': only plot line(s) on the left and/or beneath the point.
+        Marker style for the intersection point, if both x and y are provided.
+        The default is '' (no marker).
+    style : {'through', 'axis'}, optional
+        Line style:
+        
+        - ``'through'``: line(s) extend across the full axis.
+        - ``'axis'``: only plot line(s) on the left and/or beneath the point.
+        
+        The default is ``'through'``.
     label : str, optional
-        The label for the lines.
-    ax : optional
-        The axis where you want to plot the lines.
+        Label assigned to the line(s), useful for legends.
+    ax : matplotlib.axes.Axes, optional
+        The axis on which to plot. If None, uses the current axis.
     **lineargs :
-        Keyword arguments for lines.
+        Additional keyword arguments passed to ``ax.axhline`` and ``ax.axvline``.
     '''
-
+    
+    def _format_val(v, formatter):
+        return (v - formatter.offset) / 10.**formatter.orderOfMagnitude
+    
     # check input
     if style not in ['through', 'axis']:
         raise ValueError(f"'style' should be 'through' or 'axis', got '{style}'")
@@ -79,6 +89,8 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
         dy = np.log10(ymax) - np.log10(ymin)
     else:
         dy = ymax - ymin
+    
+    fig = ax.figure
 
     if x is None and y is None:
         raise ValueError('You should at least specify one of the parameters: "x" and "y".')
@@ -125,15 +137,10 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
                 label = None
             artists['vline'] = ax.axvline(x, ymax=lineymax, label=label, **lineargs)
             if xpos is not None:
-                plt.pause(.01) # this pause is essential. without this pause, the ScalarFormatter (got by ax.xaxis.get_major_formatter()) has not yet been set, so one always get offset == 1.
-                offset = ax.xaxis.get_major_formatter().get_offset()
-                if offset == '':
-                    offset = 1
-                else:
-                    offset = float(offset)
-                # offset = 1
+                fig.canvas.draw() # makes sure the ScalarFormatter has been set
+                x_fmter = ax.xaxis.get_major_formatter()
                 if xtxt is None:
-                    xtxt1 = ('${:'+xfmt+'}$').format(x/offset)
+                    xtxt1 = f'{_format_val(x, x_fmter):{xfmt}}'
                 else:
                     xtxt1 = xtxt
                 if yscale == 'log':
@@ -153,15 +160,10 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
                 label = None
             artists['hline'] = ax.axhline(y, xmax=linexmax, label=label, **lineargs)
             if ypos is not None:
-                plt.pause(.01) # this pause is essential. without this pause, the ScalarFormatter (got by ax.xaxis.get_major_formatter()) has not yet been set, so one always get offset == 1.
-                offset = ax.yaxis.get_major_formatter().get_offset()
-                if offset == '':
-                    offset = 1
-                else:
-                    offset = float(offset)
-                # offset = 1
+                fig.canvas.draw() # makes sure the ScalarFormatter has been set
+                y_fmter = ax.yaxis.get_major_formatter()
                 if ytxt is None:
-                    ytxt1 = ('${:'+yfmt+'}$').format(y/offset)
+                    ytxt1 = f'{_format_val(y, y_fmter):{yfmt}}'
                 else:
                     ytxt1 = ytxt
                 if xscale == 'log':
@@ -175,6 +177,6 @@ def _annotate(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f'
 
     return artists
 
-annotate = plotFunc(_annotate)
-
+# annotate = plotFunc(_annotate)
+annotate = refline
 

@@ -8,8 +8,9 @@ Created on Mon Oct 10 17:19:10 2022
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-from functools import wraps
-from inspect import signature, isfunction
+from functools import wraps, update_wrapper
+from inspect import signature
+import textwrap
 from ..utils import objdict
 from copy import deepcopy
 import matplotlib.colors as mcolors
@@ -57,13 +58,17 @@ class PlotFunction():
             self.func_name = func.__name__ # the appearent name when using this function
             self.func_defname = func.__name__ # the real name in the definition of plot function
             self.func_sig = (signature(self.func))
-        self.func_def = self.func_name + str(self.func_sig) + '\n\n' + self.func_name + '(axis)' + str(self.func_sig)
+        self.func_defs = [
+            self.func_name + str(self.func_sig),
+            self.func_name + '(axis)' + str(self.func_sig),
+            ]
 
         # TODO: below may cause bugs
-        self.func_def = self.func_def.replace('(self, ', '(')
+        self.func_defs = [func_def.replace('(self, ', '(') for func_def in self.func_defs]
         if self.func_doc is None: self.func_doc = ''
         if self.func_doc and self.func_doc[0] == '\n':
             self.func_doc = self.func_doc[1:]
+        self.func_doc = textwrap.dedent(self.func_doc)
 
         # self.__call__.__func__.__doc__ = self.func_doc
 
@@ -71,6 +76,9 @@ class PlotFunction():
         self.config = deepcopy(DEFAULT_CONFIG)
         if hasattr(self.func, 'config'):
             self.config.update(self.func.config)
+        
+        update_wrapper(self, func)
+        self.__doc__ = self._generate_doc()
 
     def _call_with_ax(self, ax, execute_callback=False):
         if self.input_ax:
@@ -134,13 +142,27 @@ class PlotFunction():
     def __getattr__(self, attr):
         return getattr(self.func, attr)
 
-    @property
-    def __doc__(self): # manually generate doc
-        return self.func_def + '\n\nFunction modified to accomodate pyttop.table.Data. Original documentaion shown below:\n\n' + self.func_doc + '\n\n'
-
-    @property
-    def __name__(self):
-        return self.func_name
+    # @property
+    # def __doc__(self): # manually generate doc
+    def _generate_doc(self):
+        return (self._generate_notice()
+                + self.func_doc + '\n\n')
+    
+    def _generate_notice(self):
+        notice_text = (
+            'This function is made compatible with ``pyttop.table.Data.plots()`` and can be called in either of the following ways:\n\n'
+            + '\n\n'.join([f'- ``{func_def}``' for func_def in self.func_defs])
+            + '\n\n'
+            )
+        return ('.. tip::\n\n'
+                + textwrap.indent(notice_text, '    '))
+    
+    def __repr__(self):
+        return f"<pyttop PlotFunction {self.func_defs[0]}>"
+    
+    # @property
+    # def __name__(self):
+    #     return self.func_name
 
 class DelayedPlot():
     def __init__(self):
