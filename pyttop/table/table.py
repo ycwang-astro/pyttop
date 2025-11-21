@@ -1116,6 +1116,11 @@ class Data(plot.PlotMethodsMixin):
                 {'Data_1': ['column1', 'column2']}
 
             If, e.g, ``merge_columns`` for ``data2`` (with name 'Data_2') is not specified, every fields (columns) of ``data2`` will be merged.
+            The list can also include regular expressions, e.g.::
+                
+                # requires `import re`
+                {'Data_1': ['column1', re.compile('class.*')]}
+                
             The default is {}.
         ignore_columns : dict, optional
             A dict that specifies fields (columns) not to be merged.
@@ -1231,11 +1236,39 @@ class Data(plot.PlotMethodsMixin):
         ## cut data and subsets (if needed) ##
         # cut myself
         data = self.t[matched] # data is not self.t # even if `matched` is all True
+        
+        def resolve_regex(table, colname_list):
+            outname = []
+            for name in colname_list:
+                if isinstance(name, str):
+                    outname.append(name)
+                elif isinstance(name, re.Pattern):
+                    outname.extend(cn for cn in table.colnames if name.search(cn))
+                else:
+                    raise TypeError('Expected str or re.Pattern for column names in '
+                                    f'merge_columns/ignore_columns, got {type(name)}')
+            return outname
+        
         # TODO: make Data object itself valid as, e.g., merge_columns keys. (e.g., `self in merge_columns`)
-        if self.name in merge_columns:
-            data.keep_columns(merge_columns[self.name])
-        if self.name in ignore_columns:
-            data.remove_columns(ignore_columns[self.name])
+        def filter_columns(data, table):
+            # filter columns in `table` based on the list of column names 
+            # corresponding to `data` in dicts `merge_columns` and `ignore_columns`
+            
+            
+            if data.name in merge_columns:
+                keep_columns = merge_columns[data.name]
+                keep_columns = resolve_regex(table, keep_columns)
+                table.keep_columns(keep_columns)
+            if data.name in ignore_columns:
+                remove_columnes = ignore_columns[data.name]
+                remove_columnes = resolve_regex(table, remove_columnes)
+                table.remove_columns(remove_columnes)
+        
+        filter_columns(self, data)
+        # if self.name in merge_columns:
+        #     data.keep_columns(merge_columns[self.name])
+        # if self.name in ignore_columns:
+        #     data.remove_columns(ignore_columns[self.name])
 
         if keep_subsets:
             subset_groups = Data._cut_subset_groups(self.subset_groups, matched)
@@ -1248,11 +1281,12 @@ class Data(plot.PlotMethodsMixin):
             data1_matched = matchinfo.matched
 
             data1_table = data1.t.copy()
-
-            if data1.name in merge_columns:
-                data1_table.keep_columns(merge_columns[data1.name])
-            if data1.name in ignore_columns:
-                data1_table.remove_columns(ignore_columns[data1.name])
+            
+            filter_columns(data1, data1_table)
+            # if data1.name in merge_columns:
+            #     data1_table.keep_columns(merge_columns[data1.name])
+            # if data1.name in ignore_columns:
+            #     data1_table.remove_columns(ignore_columns[data1.name])
 
             if data1.name in keep_unmatched: # keep unmatched
                 if verbose: print(f'[merge] entries with no match for {data1.name} is kept.')
@@ -3393,7 +3427,7 @@ class Data(plot.PlotMethodsMixin):
     def _short_name(self):
         if self.name is None:
             return None
-        return omit_middle(self.name, config.data_name_repr_maxlen)
+        return omit_middle(self.name, config.display.data_name_maxlen)
 
     ## below are magic methods
 

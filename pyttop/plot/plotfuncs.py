@@ -8,10 +8,12 @@ Created on Mon Aug  5 19:04:11 2024
 import numpy as np
 import matplotlib.pyplot as plt
 from .base import plotFunc, plotFuncAx
+from .base import scatter as ptscatter
 from collections.abc import Iterable
 
 __all__ = [
     'refline', 'annotate',
+    'binned_quantiles'
     ]
 
 @plotFunc
@@ -180,3 +182,145 @@ def refline(x=None, y=None, xpos=.1, ypos=.1, xtxt=None, ytxt=None, xfmt='.2f', 
 # annotate = plotFunc(_annotate)
 annotate = refline
 
+@plotFunc
+def binned_quantiles(x, y, 
+                     bin_size=.1, bin_dist=.1, quantiles=[.16, .50, .84], min_n=10, 
+                     xmin=None, xmax=None,
+                     show_scatter=True, s=None, c=None, label=None, 
+                     show_bins=True, show_errorbars=True, emarker='o', es=5, ec=None, elabel=None,
+                     show_fill=False, fc=None, flabel=None,
+                     errkwargs={}, fillkwargs={}, **kwargs
+                     ):
+    """
+    Plot sliding-window quantile errorbars/fill.
+
+    This function visualizes a 2D distribution by plotting raw (x, y) points and computing
+    sliding-window quantiles in x-bins. It then overlays error bars and/or filled regions 
+    to represent variability (e.g. 16th–84th percentile) in y-values within each x-bin.
+    
+    This is useful when visualizing scatter data along with robust estimates of central tendency 
+    and spread.
+
+    Parameters
+    ----------
+    x, y : array-like
+        Data coordinates.
+    bin_size : float, optional
+        Width of each sliding bin in x-units. Default is 0.1.
+    bin_dist : float, optional
+        Step size between consecutive bin positions (i.e., sliding window stride). Default is 0.1.
+    quantiles : list of 3 floats, optional
+        List of quantiles to compute within each bin. Must be in increasing order.
+        Default is [0.16, 0.50, 0.84].
+    min_n : int, optional
+        Minimum number of data points required in a bin to compute quantiles. Default is 10.
+    xmin, xmax : float, optional
+        Range of x-values to include in binning. If None, inferred from data.
+    show_scatter : bool, optional
+        If True, plot the raw scatter points. Default is True.
+    s, c : optional
+        Marker size and color for scatter points.
+    label : str, optional
+        Label for the scatter plot.
+    show_bins : bool, optional
+        If True, include horizontal error bars showing bin width. Default is True.
+    show_errorbars : bool, optional
+        If True, show vertical error bars (quantile-based). Default is True.
+    emarker : str, optional
+        Marker style for error bar midpoints. Default is 'o'.
+    es : float, optional
+        Marker size for error bars. Default is 5.
+    ec : color, optional
+        Color for error bars.
+    elabel : str, optional
+        Label for the error bars. If None and ``show_scatter`` is False, inherits ``label``.
+    show_fill : bool, optional
+        If True, fills the area between lower and upper quantiles. Default is False.
+    fc : color, optional
+        Fill color. If None, inherits from ``ec``.
+    flabel : str, optional
+        Label for the fill.
+    errkwargs : dict, optional
+        Additional keyword arguments passed to ``plt.errorbar``.
+    fillkwargs : dict, optional
+        Additional keyword arguments passed to ``plt.fill_between``.
+    **kwargs : dict
+        Additional keyword arguments passed to the scatter plot.
+    """
+    # np.asarray() or np.array() will return a base np.ndarray (masks will be lost)
+    x, y = np.asanyarray(x), np.asanyarray(y)
+    artists = {}
+    
+    if show_scatter:
+        ptscatter(x, y, s=s, c=c, label=label, **kwargs)
+        artists['scatter'] = ptscatter.s
+        # scatter = plt.scatter(x, y, s=s, c=c, label=label, **kwargs)
+    
+    if not show_scatter and elabel is None:
+        elabel = label
+    if fc is None:
+        fc = ec
+    
+    mask = np.ma.getmaskarray(x) | np.ma.getmaskarray(y)
+    x = x[~mask]
+    y = y[~mask]
+    
+    if xmin is None:
+        xmin = np.min(x)
+    if xmax is None:
+        xmax = np.max(x)
+    x_lefts = np.arange(xmin, xmax - bin_size + bin_dist, bin_dist)
+    # print(np.min(x), np.max(x), bin_size, x_lefts)
+    
+    x_centers = x_lefts + bin_size / 2
+    x_rights = x_lefts + bin_size
+    
+    ymids, yq0s, yq1s = [], [], []
+    
+    for left, right in zip(x_lefts, x_rights):
+        assert right == left + bin_size
+        in_bin = (x >= left) & (x < right)
+        if np.sum(in_bin) >= min_n:
+            yq0, ymid, yq1 = np.quantile(y[in_bin], quantiles)
+        else:
+            yq0, ymid, yq1 = np.nan, np.nan, np.nan
+        ymids.append(ymid)
+        yq0s.append(yq0)
+        yq1s.append(yq1)
+    ymids = np.array(ymids)
+    yq0s = np.array(yq0s)
+    yq1s = np.array(yq1s)
+    
+    ekwargs = dict(
+        linestyle='',
+        )
+    ekwargs.update(errkwargs)
+    
+    if show_bins:
+        xerr = [x_centers-x_lefts, x_rights-x_centers]
+    else:
+        xerr = None
+    
+    if show_errorbars:
+        yerr = [ymids-yq0s, yq1s-ymids]
+    else:
+        yerr = None
+    
+    artists['errorbar'] = plt.errorbar(
+        x_centers, ymids,
+        xerr=xerr,
+        yerr=yerr,
+        marker=emarker, markersize=es, color=ec,
+        label=elabel,
+        **ekwargs,
+        )
+    
+    if show_fill:
+        fkwargs = {'alpha': .2} | fillkwargs
+        artists['fill'] = plt.fill_between(
+            x_centers, yq1s, yq0s, 
+            color=fc, label=flabel,
+            **fkwargs,
+            )
+    
+    return artists

@@ -12,6 +12,7 @@ from functools import wraps, update_wrapper
 from inspect import signature
 import textwrap
 from ..utils import objdict
+from ..config import config
 from copy import deepcopy
 import matplotlib.colors as mcolors
 
@@ -358,13 +359,6 @@ def errorbar(ax):
     return ax.errorbar
 
 #%% table.Data mixins
-defaults = {
-    # default values for PlotMethodsMixin method parameters
-    'hist': {
-        'histtype': 'step',
-        'lw': 1.3,
-        },
-    }
 
 # def colname_kwargs(*argnames):
 #     def decorator(func):
@@ -415,7 +409,7 @@ class PlotMethodsMixin():
     # @wraps(plt.hist)
     def hist(self, x, weights=None, **kwargs):
         # TODO: docstring
-        kwargs = defaults['hist'] | kwargs
+        kwargs = config.plot.defaults_hist | kwargs
         self.__class__._process_colname_kwargs(
             ['x', 'weights'], locals(), argkeys=['x'])
         return self.plots('hist', **kwargs)

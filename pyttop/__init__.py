@@ -22,7 +22,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-__version__ = '0.4.3'
+__version__ = '0.4.4-dev'
 
 from .sampledata import get_example
 from .config import config
+from .table import Data, Subset
