@@ -16,29 +16,101 @@ from typing import Union, Sequence
 
 #%% array/Iterable operations
 
+# exceptions raised by find_idx
+class DTypeMismatchError(TypeError):
+    def __init__(self, dtype0, dtype1, msg=None):
+        self.dtype0 = dtype0
+        self.dtype1 = dtype1
+        self.kind0 = dtype0.kind
+        self.kind1 = dtype1.kind
+        
+        if msg is None: msg = f'dtypes do not match: {self.dtype0} and {self.dtype1}'
+        super().__init__(msg)
+    
+class DTypeUnsupportedError(TypeError):
+    def __init__(self, argname, dtype):
+        self.argname = argname
+        self.dtype = dtype
+        super().__init__(f'dtype of {self.argname} not supported: {self.dtype}')
+
 def find_idx(array, values):
     '''
-    Find the indexes of values in array.
+    Find the indexes of ``values`` in ``array``.
     
-    If not found, will return -l-1, which is out of
-    the range of array.
+    This function returns, for each element in ``values``, an index ``idx`` such
+    that ``array[idx] == value`` when the value is present in ``array``. When a
+    value is not present, the returned index is set to ``-l-1`` (where ``l`` is
+    ``len(array)``), which is always out of bounds for ``array`` and therefore
+    cannot be confused with a valid index.
 
+    Note
+    ----
+    - With duplicate entries in ``array``, the matched index is not guaranteed
+      to be the first occurrence.
+    - Only 1D, non-masked arrays are supported.
+    - For safety, ``array`` and ``values`` must have the same dtype *kind*.
+      Supported kinds are integers (``'i'``), unsigned integers (``'u'``),
+      unicode strings (``'U'``), and byte strings (``'S'``).
+      
     Parameters
     ----------
     array : Iterable
-        .
+        1D array-like to search within.
     values : Iterable
-        .
+        1D array-like of query values.
 
     Returns
     -------
-    idx : np.ndarray (int)
-    
-    found : np.ndarray (bool)
+    idx : np.ndarray of int
+        Indices into ``array`` for each value in ``values``. For values that are
+        not found, the corresponding entry is ``-l-1`` where ``l=len(array)``.
+    found : np.ndarray of bool
+        Boolean mask with the same shape as ``values``. ``True`` where the value
+        was found in ``array`` and ``False`` otherwise.
 
+    Raises
+    ------
+    ValueError
+        If ``array`` or ``values`` is not 1D, or if either contains masked
+        values.
+    DTypeMismatchError
+        If ``array`` and ``values`` have different dtype kinds.
+    DTypeUnsupportedError
+        If the dtype kind of ``array`` or ``values`` is not supported.
+
+    Examples
+    --------
+    >>> array = np.array([10, 20, 30])
+    >>> values = np.array([20, 99, 10])
+    >>> idx, found = find_idx(array, values)
+    >>> idx
+    array([ 1, -4,  0])
+    >>> found
+    array([ True, False,  True])
     '''
+    array = np.asanyarray(array)
+    values = np.asanyarray(values)
+    ak = array.dtype.kind
+    vk = values.dtype.kind
+    
+    # checks
+    if array.ndim != 1 or values.ndim != 1:
+        raise ValueError('only 1D arrays supported')
+    if np.ma.is_masked(array) or np.ma.is_masked(values):
+        raise ValueError('no masked values supported')
+    
+    # dtype checks
+    allowed_dtypes = 'iuUS'
+    if ak != vk:
+        raise DTypeMismatchError(array.dtype, values.dtype, 
+                                 msg='for safety, array and values must have the same dtype kind')
+    if ak not in allowed_dtypes: 
+        raise DTypeUnsupportedError('array', array.dtype)
+    if vk not in allowed_dtypes:
+        raise DTypeUnsupportedError('values', values.dtype)
+    
     l = len(array)
-    sorter = np.argsort(array)
+    sorter = np.argsort(array) # TODO: default sort may be unstable; with duplicates, returned index may be any matching occurrence (not necessarily first). Use kind="stable" for first-occurrence behavior.
     ss = np.searchsorted(array, values, sorter=sorter)
     isin = np.isin(values, array)
     not_found = (ss==l) | (~isin)

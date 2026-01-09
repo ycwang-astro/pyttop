@@ -545,7 +545,7 @@ class Subset():
         namestr = f"Subset '{self.name}'" if self.name is not None else 'Unnamed Subset'
         if self.data is not None:
             datastr = " of Data "
-            short_data_name = self.data._short_name()
+            short_data_name = self.data._short_name
             datastr += f"'{short_data_name}'" if short_data_name is not None else 'without name'
         else:
             datastr = ''
@@ -780,7 +780,7 @@ class Data(plot.PlotMethodsMixin):
                 self.unmatch(data1)
             else:
                 raise ValueError(f"Data with name '{data1.name}' has already been matched. This may result from name duplicates or re-matching the same catalog. "
-                                 "Set 'replace=True' to replace the existing match with '{data1.name}'.")
+                                 f"Set 'replace=True' to replace the existing match with '{data1.name}'.")
                 # names are currently used as IDs in the context of matching and merging, so any name conflict is not allowed.
 
         matcher.get_values(self, data1, verbose=verbose)
@@ -794,7 +794,7 @@ class Data(plot.PlotMethodsMixin):
         self.matchinfo.append(info)
         self.matchnames.append(data1.name)
 
-        matchstr = f'"{data1.name}" matched to "{self.name}": {np.sum(matched)}/{len(matched)} matched.'
+        matchstr = f'"{data1._short_name}" matched to "{self._short_name}": {np.sum(matched)}/{len(matched)} matched.'
         self.matchlog.append(matchstr)
         if verbose: print('[match] ' + matchstr)
 
@@ -1289,7 +1289,7 @@ class Data(plot.PlotMethodsMixin):
             #     data1_table.remove_columns(ignore_columns[data1.name])
 
             if data1.name in keep_unmatched: # keep unmatched
-                if verbose: print(f'[merge] entries with no match for {data1.name} is kept.')
+                if verbose: print(f'[merge] entries with no match for {data1._short_name} is kept.')
                 idx[~data1_matched] = 0 # TODO: DANGER: The masked "data" will be valid values, i.e. the value on the first row! These may emerge when using e.g. np.array, plt.hist2d (which uses np.histogram2d).
                 data1_table = Table(data1_table, masked=True)
                 data1_matched_table = data1_table[idx]
@@ -1652,7 +1652,7 @@ class Data(plot.PlotMethodsMixin):
 
         if to_col is not None:
             self[to_col] = result
-            self[to_col].meta['src_detail'] += f' with expr "{expression}"'
+            self[to_col].meta['src_detail'] += f' with expr {expression!r}'
         return result
 
     def mask_missing(self, cols=None, missval=None, verbose=True):
@@ -1883,7 +1883,7 @@ class Data(plot.PlotMethodsMixin):
         if colname is None:
             return OrderedDict((name, self.from_which(name, detail=detail)) for name in self.colnames)
         elif colname not in self.colnames:
-            raise KeyError(colname)
+            raise ColumnNotFoundError(colname)
         else:
             meta = self.t[colname].meta
             if 'src' in meta.keys():
@@ -1958,6 +1958,36 @@ class Data(plot.PlotMethodsMixin):
         raise NotImplementedError()
 
     #### subsets
+    
+    # The old '$unmasked/' is kept for backward compatibility;
+    # it is parsed with the normal group/name/subset_name convention.
+    _reserved_groupname_prefixes = ("$unmasked:", "$eval:")
+    _special_subset_prefixes = _reserved_groupname_prefixes
+    
+    @staticmethod
+    def _check_group_name(arg_name='group_name'):
+        # check method's group_name argument:
+        # should not start with prefix reserved for special subsets
+        def decorator(meth):
+            @wraps(meth)
+            def newmeth(self, *args, **kwargs):
+                bound_args = inspect.signature(meth).bind(self, *args, **kwargs)
+                bound_args.apply_defaults()
+                group_name = bound_args.arguments[arg_name]
+                if isinstance(group_name, str):
+                    # check prefixes
+                    for prefix in self.__class__._reserved_groupname_prefixes:
+                        if group_name.startswith(prefix):
+                            raise ValueError(
+                                f"group name '{group_name}' cannot start with reserved prefix '{prefix}'"
+                                )
+                elif group_name is None:
+                    pass
+                else:
+                    raise TypeError(f'unsupported type for group name: {type(group_name)}')
+                return meth(self, *args, **kwargs)
+            return newmeth
+        return decorator
 
     def _gen_subset_all(self):
         # this is called in __init__() and clear_subsets().
@@ -1967,7 +1997,7 @@ class Data(plot.PlotMethodsMixin):
         subset_all._data = self
         return subset_all
 
-
+    @_check_group_name('group')
     def add_subsets(self, *subsets, group=None, listalways=False, verbose=True):
         '''
         Add subsets to a subset group.
@@ -2028,6 +2058,7 @@ class Data(plot.PlotMethodsMixin):
         else:
             return subsets
 
+    @_check_group_name('group_name')
     def subset_group_from_values(self, column, group_name=None, overwrite=False):
         '''
         Create a subset group by the unique values of a column.
@@ -2078,6 +2109,7 @@ class Data(plot.PlotMethodsMixin):
             name = subset.name
             self.subset_groups[group_name][name] = subset
 
+    @_check_group_name('group_name')
     def subset_group_from_ranges(self, column, ranges, group_name=None, overwrite=False):
         '''
         Create a subset group by setting several ranges of values of a column.
@@ -2132,6 +2164,7 @@ class Data(plot.PlotMethodsMixin):
         
         return subsets
 
+    @_check_group_name('group')
     def clear_subsets(self, group=None):
         '''
         Clear user-defined subsets.
@@ -2169,9 +2202,9 @@ class Data(plot.PlotMethodsMixin):
             >>> subsets = data.get_subsets()
             >>> mysubset = subsets['group_name']['subset_name']
 
-        Note that a special group (and the subsets in it) is virtual (and does not actually exist).
-        Subsets from special groups (including '$unmasked') can only be retrieved using their paths
-        (e.g., ``'$unmasked/<column name>'``). Otherwise, a `GroupNotFoundError` will be raised.
+        Note that a special subset is temporarily created when retrieving (or referring to) it.
+        They can only be retrieved using the paths (e.g., ``'$unmasked:<column name>'``).
+        Otherwise, a `GroupNotFoundError` will be raised.
 
         Parameters
         ----------
@@ -2201,7 +2234,7 @@ class Data(plot.PlotMethodsMixin):
 
         Notes
         -----
-        A special subset group is a virtual group that does not actually exist.
+        A special subset is a virtual subset that does not actually exist.
         It is used to create a (new) subset as if retrieving an existing subset from
         the data.
         These virtual subsets are only created when ``get_subsets()``
@@ -2212,29 +2245,31 @@ class Data(plot.PlotMethodsMixin):
                 data.get_subsets('<path to the special subset>'),
                 )
 
-        Recognized special subsets include:
-
-        - ``$unmasked``. This subset group contains virtual subsets indicating whether the values in
-          a specified column are not masked (i.e., a subset in this group contains rows where the value
-          for the specified column is not masked).
-          To retrieve such a subset, use::
-
-              data.get_subsets('$unmasked/<column name>')
-
-          Note that a new subset is created each time ``get_subsets()`` is called to retrieve such a subset.
-          The old subsets remain unchanged even if the column's mask changes. For example::
-
-              subset0 = data.get_subsets('$unmasked/col1')
-              # changing the mask of column 'col1'
-              subset1 = data.get_subsets('$unmasked/col1')
-              subset0 is not subset1 # True
-              # NOTE: subset0 is the old subset that does not represent the masking of 'col1' now.
-
-        Examples
-        --------
-        Under construction
-
         '''
+        # TODO: add new special subsets
+        ### OLD DOCSTRING ###
+        # Recognized special subsets include:
+
+        # - ``$unmasked``. This subset group contains virtual subsets indicating whether the values in
+        #   a specified column are not masked (i.e., a subset in this group contains rows where the value
+        #   for the specified column is not masked).
+        #   To retrieve such a subset, use::
+
+        #       data.get_subsets('$unmasked/<column name>')
+
+        #   Note that a new subset is created each time ``get_subsets()`` is called to retrieve such a subset.
+        #   The old subsets remain unchanged even if the column's mask changes. For example::
+
+        #       subset0 = data.get_subsets('$unmasked/col1')
+        #       # changing the mask of column 'col1'
+        #       subset1 = data.get_subsets('$unmasked/col1')
+        #       subset0 is not subset1 # True
+        #       # NOTE: subset0 is the old subset that does not represent the masking of 'col1' now.
+
+        # Examples
+        # --------
+        # Under construction
+
         # (i.e. a special subset group and the virtual subsets therein
         # is never remembered by a ``pyttop.table.Data`` instance)
 
@@ -2290,6 +2325,24 @@ class Data(plot.PlotMethodsMixin):
             else:
                 raise TypeError(f'name should be str or Iterable, not {type(name)}')
 
+    @classmethod
+    def _parse_subset_path(cls, path):
+        # returns group, name given path
+        
+        # detects special subsets
+        for prefix in cls._special_subset_prefixes:
+            if path.startswith(prefix):
+                return prefix, path[len(prefix):]
+        
+        # normal 'group/name/subset_name' convention
+        if '/' not in path:
+            group = 'default'
+            name = path
+        else:
+            group, name = path.rsplit('/', maxsplit=1) # allows '/' in groupname
+        
+        return group, name
+
     def _get_subset_from_path(self, path, autosearch=False, force=False):
         # get the subset from path
         # autosearch: search this subset name in other groups if does not found this name in this group
@@ -2297,12 +2350,10 @@ class Data(plot.PlotMethodsMixin):
             self._check_subset_association(path, action = 'warn' if force else 'raise')
             return path
 
-        if '/' not in path:
-            group = 'default'
-            name = path
-        else:
-            names = path.split('/')
-            group, name = '/'.join(names[:-1]), names[-1] # allows '/' in groupname
+        group, name = self.__class__._parse_subset_path(path)
+
+        if group in self.__class__._special_subset_prefixes: # a special subset
+            return self._get_special_subset(group, name)
 
         if group in ['$unmasked']: # this is a special group
             return self._get_special_subset(group, name)
@@ -2338,20 +2389,26 @@ class Data(plot.PlotMethodsMixin):
         return subset
 
     def _get_special_subset(self, group, name):
-        if group == '$unmasked': # '$unmasked/<column_name>'
+        if group in ['$unmasked:', '$unmasked']: # '$unmasked:<column_name>'
             if np.ma.is_masked(self[name]):
                 unmasked = ~self[name].mask # here name is a column name
                 # Notes: the '~' operation creates a new array. Consider this: a = np.array((True, True)); b = ~a; a[0] = not a[0]; print(np.all(b == ~a)) # False
             else:
                 unmasked = np.full(len(self), True)
-            subset = Subset(unmasked,
-                            name=f'$unmasked({name})',
-                            expression=f"~self['{name}'].mask",
-                            label=self.get_labels(name)+' unmasked')
+            subset = Subset(
+                unmasked,
+                name=f'$unmasked({name})',
+                expression=f"~self['{name}'].mask",
+                label=self.get_labels(name)+' unmasked'
+                )
+            subset.eval_(self)
+            return subset
+        elif group == '$eval:':
+            subset = Subset(name)
             subset.eval_(self)
             return subset
         else:
-            raise ValueError(f"unrecognized special subset group: '{group}'")
+            raise ValueError(f"unrecognized special subset: '{group}'")
 
     def _subset_associates(self, subset):
         if not isinstance(subset, Subset):
@@ -2578,7 +2635,13 @@ class Data(plot.PlotMethodsMixin):
             summary.add_row(dict(
                 group='$unmasked', name='-',
                 size='-1', fraction=np.nan,
-                expression='<special group of subsets for unmasked elements>',
+                expression='<special subsets: item in col unmasked>',
+                label='-',
+                ))
+            summary.add_row(dict(
+                group='$eval', name='-',
+                size='-1', fraction=np.nan,
+                expression='<special subsets: rows satisfy expression>',
                 label='-',
                 ))
             # show all groups
@@ -3424,6 +3487,7 @@ class Data(plot.PlotMethodsMixin):
     def copy(self):
         raise NotImplementedError()
 
+    @property
     def _short_name(self):
         if self.name is None:
             return None
@@ -3432,7 +3496,7 @@ class Data(plot.PlotMethodsMixin):
     ## below are magic methods
 
     def __repr__(self):
-        short_name = self._short_name()
+        short_name = self._short_name
         namestr = f"'{short_name}'" if short_name is not None else 'without name'
         return f"<Data {namestr}>"
 

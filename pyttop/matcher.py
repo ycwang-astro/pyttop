@@ -9,6 +9,7 @@ Built-in matchers.
 
 import numpy as np
 from .utils import find_idx, find_eq, find_dup
+from .utils import DTypeMismatchError, DTypeUnsupportedError
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from astropy.units import UnitTypeError
@@ -57,19 +58,22 @@ class ExactMatcher():
                 raise TypeError("argument missing: 'value1'")
 
     def get_values(self, data, data1, verbose=True):
+        self.data, self.data1 = data, data1
         valuetype, value1type = type(self.value), type(self.value1)
         if isinstance(self.value, str):
             self.value = data[self.value]
         elif isinstance(self.value, Iterable):
-            if not isinstance(self.value, np.ndarray): # Column, MaskedArray, etc. are instances of np.ndarray but will be converted by np.array(), so we need this condition
-                self.value = np.array(self.value)
+            self.value = np.asanyarray(self.value)
+            # if not isinstance(self.value, np.ndarray): # Column, MaskedArray, etc. are instances of np.ndarray but will be converted by np.array(), so we need this condition
+            #     self.value = np.array(self.value)
         else:
             raise TypeError(f"expected str or Iterable for 'value', got '{type(self.value)}'")
         if isinstance(self.value1, str):
             self.value1 = data1[self.value1]
         elif isinstance(self.value1, Iterable):
-            if not isinstance(self.value1, np.ndarray): # Column, MaskedArray, etc. are instances of np.ndarray but will be converted by np.array(), so we need this condition
-                self.value1 = np.array(self.value1)
+            self.value1 = np.asanyarray(self.value1)
+            # if not isinstance(self.value1, np.ndarray): # Column, MaskedArray, etc. are instances of np.ndarray but will be converted by np.array(), so we need this condition
+            #     self.value1 = np.array(self.value1)
         else:
             raise TypeError(f"expected str or Iterable for 'value1', got '{type(self.value1)}'")
 
@@ -106,10 +110,51 @@ class ExactMatcher():
         self.not_missing_id, self.not_missing_id1 = not_missing_ids
 
     def match(self):
+        def dtypestr(dtype):
+            return f"{dtype.name} ('{dtype}')"
+        
         l = len(self.missing)
         idx = np.full(self.missing.shape, -l-1)
         matched = np.full(self.missing.shape, False)
-        idx_nm, matched_nm = find_idx(self.value1[~self.missing1], self.value[~self.missing])
+        try:
+            idx_nm, matched_nm = find_idx(self.value1[~self.missing1], self.value[~self.missing])
+        except DTypeUnsupportedError as e:
+            if e.argname == 'array':
+                name = self.value1_name
+                data = self.data1
+            elif e.argname == 'values':
+                name = self.value_name
+                data = self.data
+            else:
+                raise ValueError(f"Unexpected argname: '{e.argname}'")
+            raise TypeError(
+                'ExactMatcher only supports integers or strings. '
+                f'{name} for {data._short_name} is {dtypestr(e.dtype)}'
+                # f"got {self.value_name} -> '{self.value.dtype}' and {self.value1_name} -> '{self.value1.dtype}'"
+                ) from e
+        except DTypeMismatchError as e:
+            # related checks:
+            # self.value.dtype != self.value1.dtype: # may be too strict
+            # self.value.dtype.kind != self.value1.dtype.kind
+            # other alternatives: np.can_cast, np.promote_types
+            tips = ''
+            if {e.kind0, e.kind1} == {'U', 'S'}: # mixing unicode and bytes
+                # allowing this may cause silent errors, for example:
+                # find_idx(np.array(["text", "tex"], dtype="U"), np.array([b"text"], dtype="S"))
+                # -> [-3], [False] # not found
+                tips = (
+                    # "\nTo convert between 'U' (unicode) and 'S' (bytes): "
+                    # "np.char.decode(x, encoding=...) for bytes->text, or np.char.encode(x, encoding=...) for text->bytes."
+                    "\nTo convert between str and bytes: "
+                    "np.char.decode(x, encoding=...) for bytes->str, or np.char.encode(x, encoding=...) for str->bytes."
+                    # ", where encoding is usually 'utf-8'."
+                    )
+            raise TypeError(
+                'For safety, ExactMatcher only supports matching the same dtype kind. '
+                f'{self.value_name} for "{self.data._short_name}" is {dtypestr(self.value.dtype)}, '
+                f'and {self.value1_name} for "{self.data1._short_name}" is {dtypestr(self.value1.dtype)}. '
+                f'{tips}'
+                ) from e
         matched[~self.missing] = matched_nm
         idx[matched] = self.not_missing_id1[idx_nm[matched_nm]]
         return idx, matched
