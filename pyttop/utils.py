@@ -284,12 +284,13 @@ def pause_and_warn(message=' ', choose='Proceed?', default = 'n', yes_message=''
             [print] <no_message>
         if no_message is 'raise':
             [raise] Error: <message>
-    [return] the choise, True for yes, False for no.
+    [return] the choice, True for yes, False for no.
     '''
     print('{:-^40}'.format('[WARNING]'))
     
-    if isinstance(message, Exception):
-        message = str(type(message)).replace('<class \'','').replace('\'>', '')+': '+'. '.join(message.args)
+    if isinstance(message, BaseException):
+        args = '. '.join(map(str, message.args))
+        message = f'{type(message).__name__}: {args}' if args else type(message).__name__
     if warn:
         warnings.warn(message, stacklevel=3)
     print(message)
@@ -299,7 +300,7 @@ def pause_and_warn(message=' ', choose='Proceed?', default = 'n', yes_message=''
         cont = input(question)
     else:
         raise NotImplementedError
-    if not cont in ['y', 'n']:
+    if cont not in ['y', 'n']:
         cont = default
     if cont == 'y':
         print(yes_message)
@@ -315,57 +316,64 @@ def pause_and_warn(message=' ', choose='Proceed?', default = 'n', yes_message=''
 
 def save_pickle(fname, *data, yes=False, ext=False):
     '''
-    save data to fname
+    Save data to fname.
 
     Parameters
     ----------
-    fname : TYPE
-        DESCRIPTION.
-    *data : TYPE
-        DESCRIPTION.
+    fname : str or os.PathLike
+        Output file path.
+    *data 
+        Objects to save.
     yes : bool
-        if ``True``, file will be overwritten without asking.
+        if True, file will be overwritten without asking.
     ext : bool
-        if ``True``, file name will always end with ".pkl"; otherwise use original fname given
+        if True, file name will always end with ".pkl"; 
+        otherwise use the original fname given.
     '''
-    if ext and not '.pkl' in fname:
-        fname+='.pkl'
+    fname = os.fspath(fname)
+    
+    if ext and not fname.endswith('.pkl'):
+        fname += '.pkl'
+        
     if os.path.exists(fname):
         if os.path.isdir(fname):
             raise ValueError('fname should be the file name, not the directory!')
         if yes:
             print(f'OVERWRITTEN: {fname}')
         else:
-            pause_and_warn('File "{}" already exists!'.format(fname), choose='overwrite existing files?',
+            pause_and_warn(f'File "{fname}" already exists!', choose='overwrite existing files?',
                            default='n', yes_message='overwritten', no_message='raise')
+    
     with open(fname, 'wb') as f:
         pickle.dump(data, f)
 
 def load_pickle(fname):
     '''
-    load pkl and return. 
-    If there is only one object in the pkl, will return it.
-    Otherwise, return a tuple of the objects.
+    load pickle file and return its contents.
+    
+    If there is only one object in the pickle file, return it.
+    Otherwise, return a tuple of objects.
 
     Parameters
     ----------
-    fname : TYPE
-        DESCRIPTION.
+    fname : str or os.PathLike
+        Pickle file name.
 
     Returns
     -------
-    TYPE
-        DESCRIPTION.
+    object or tuple
+        Loaded object, or tuple of loaded objects.
 
     '''
     # if fname[-4:] != '.pkl':
     #     fname+='.pkl'
     with open(fname, 'rb') as f:
         data = pickle.load(f)
-        if len(data) == 1:
-            return data[0]
-        else:
-            return data
+    
+    if len(data) == 1:
+        return data[0]
+    else:
+        return data
 
 # def save_zip(fname, ext='zip', overwrite=False)
 

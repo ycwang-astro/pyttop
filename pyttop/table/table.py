@@ -200,7 +200,7 @@ class Subset():
         self.label = label
         # self.data_name = None
         self._data = None
-        self.kwargs = kwargs
+        self.eval_kwargs = kwargs
 
     @property
     def data(self):
@@ -327,7 +327,7 @@ class Subset():
             # if self.selection in ['all', 'All']:
             #     self.selection = np.full(len(data), True)
             # else:
-            self.selection = data.eval(self.selection, **self.kwargs)
+            self.selection = data.eval(self.selection, **self.eval_kwargs)
 
                 ### old implementation below:
                 # # check string: avoid error if the string contains something like "self", "data" but are not real column names
@@ -558,6 +558,7 @@ class Subset():
     def __getstate__(self):
         state = self.__dict__.copy()
         del state['_data'] # data should not be pickled
+        del state['eval_kwargs'] # eval_kwargs can have external objects
         return state
 
     def __setstate__(self, state):
@@ -620,7 +621,9 @@ class Data(plot.PlotMethodsMixin):
         if isinstance(data, self.__class__):
             raise TypeError('input is already a Data object')
 
-        if type(data) is str and 'format' in kwargs and kwargs['format'] in ['data', 'pkl']: # should use Data.load
+        got_path = isinstance(data, (str, os.PathLike))
+
+        if got_path and kwargs.get('format') in ['data', 'pkl']: # should use Data.load
             raise ValueError(f"to load data file saved with Data.save, use Data.load('{data}', format='{kwargs['format']}')")
 
         if name is None:
@@ -632,9 +635,9 @@ class Data(plot.PlotMethodsMixin):
         # file to accelerate data loading process.
 
         # get data
-        if type(data) is str: # got a path
+        if got_path: # got a path
             self.t = Table.read(data, **kwargs)
-            self._path = data
+            self._path = str(data)
         elif isinstance(data, io.IOBase): # got a file-like object
             self.t = Table.read(data, **kwargs) # see astropy.io.registry.core.UnifiedInputRegistry.read
             try:
@@ -798,7 +801,7 @@ class Data(plot.PlotMethodsMixin):
         self.matchlog.append(matchstr)
         if verbose: print('[match] ' + matchstr)
 
-        return self
+        # return self
 
     def unmatch(self, data1, verbose=True):
         '''
@@ -825,7 +828,7 @@ class Data(plot.PlotMethodsMixin):
             raise TypeError(f"only supports 'pyttop.table.Data' or str; got {type(data1)}")
 
         if name1 not in self.matchnames:
-            warnings.warn(f"Data with name '{data1.name}' has never been matched. Nothing is done.")
+            warnings.warn(f"Data with name '{data1.name}' is not matched. Nothing is done.")
             return
 
         self.matchinfo = [info for info in self.matchinfo if info.data1.name != name1]
@@ -1386,8 +1389,9 @@ class Data(plot.PlotMethodsMixin):
         self.match(data1=data1, matcher=matcher, verbose=verbose)
         return self.merge(keep_unmatched=keep_unmatched, merge_columns=merge_columns, ignore_columns=ignore_columns, outname=outname, verbose=verbose)
 
-    def _match_tree(self, depth=-1, matcher='base', datas=None, removed_datas=None):
+    def _match_tree(self, depth=-1, matcher='base', matchinfo=None, datas=None, removed_datas=None):
         # matcher: how I am matched to my parent
+        # matchinfo: the full matchinfo of how I am matched to my parent
         # tree: the matched datas, in tree form
         # datas: the matched datas
 
@@ -1397,6 +1401,12 @@ class Data(plot.PlotMethodsMixin):
             datas = OrderedDict()
         if removed_datas is None: # this is generally useless now
             removed_datas = OrderedDict()
+            
+        # check consistency
+        if matchinfo is None:
+            assert matcher == 'base'
+        else:
+            assert matcher is matchinfo.matcher and matchinfo.data1 is self
 
         # add myself to the tree
         if any(self is i for i in datas) and depth <= datas[self]['depth']:
@@ -1405,6 +1415,7 @@ class Data(plot.PlotMethodsMixin):
                 name = self.name,
                 depth = depth,
                 matcher = matcher,
+                matchinfo = matchinfo,
                 merge = False,
                 child = OrderedDict(),
                 )
@@ -1420,6 +1431,7 @@ class Data(plot.PlotMethodsMixin):
                 name = self.name,
                 depth = depth,
                 matcher = matcher,
+                matchinfo = matchinfo,
                 merge = True,
                 child = OrderedDict(),
                 )
@@ -1427,7 +1439,7 @@ class Data(plot.PlotMethodsMixin):
                 for info in self.matchinfo:
                     data = info.data1
                     matcher = info.matcher
-                    data_tree, datas, removed_datas = data._match_tree(depth=depth-1, matcher=matcher, datas=datas, removed_datas=removed_datas)
+                    data_tree, datas, removed_datas = data._match_tree(depth=depth-1, matcher=matcher, matchinfo=info, datas=datas, removed_datas=removed_datas)
                     assert not any(data is i for i in tree[self]['child'])
                     tree[self]['child'].update(data_tree)
 
@@ -1442,7 +1454,12 @@ class Data(plot.PlotMethodsMixin):
             if info['merge']: #id(data) not in matched_ids:
                 matched_names.append(data.name)
                 matched_ids.append(id(data))
-            matcher = '' if not detail else f' [{info["matcher"]}]'
+            if info['matchinfo'] is None:
+                matched_str = ''
+            else:
+                matched = info['matchinfo'].matched
+                matched_str = f':{np.sum(matched)}/{len(matched)}'
+            matcher = '' if not detail else f' [{info["matcher"]}{matched_str}]'
             name = 'Unnamed' if info['name'] is None else info['name']
             name = '(' + name + ')' if not info['merge'] else name
             print_str = f'{indent}{name}{matcher}'
@@ -1641,6 +1658,7 @@ class Data(plot.PlotMethodsMixin):
             lambda match: f"self['{match.group(1)}']", # to self['...']
             expression,
             )
+        # TODO: support `<column_name>`?
         try:
             result = eval(_eval_expression, globals(), localvars)
         except SyntaxError as e:
@@ -2121,8 +2139,8 @@ class Data(plot.PlotMethodsMixin):
         ----------
         column : str
             The name of the column.
-        ranges : list of lists (or similar objects)
-            List of ranges.
+        ranges : array-like of shape (N, 2) 
+            Each row contains a range.
         group_name : str, optional
             The name of the created subset group.
             The default is the name of the column.

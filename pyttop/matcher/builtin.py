@@ -8,13 +8,17 @@ Built-in matchers.
 """
 
 import numpy as np
-from .utils import find_idx, find_eq, find_dup
-from .utils import DTypeMismatchError, DTypeUnsupportedError
+from ..utils import find_idx, find_eq, find_dup
+from ..utils import DTypeMismatchError, DTypeUnsupportedError
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from astropy.units import UnitTypeError
 import warnings
 from collections.abc import Iterable
+
+__all__ = [
+    'ExactMatcher', 'SkyMatcher', 'IdentityMatcher',
+    ]
 
 class UnsafeMatchingWarning(Warning):
     pass
@@ -308,7 +312,7 @@ class SkyMatcher():
 
         Returns
         -------
-        None.
+        .
 
         '''
         self.get_values(data, data1)

@@ -10,6 +10,7 @@ This controls the behavior of PyTTOP.
 
 from dataclasses import dataclass, field, fields, asdict, is_dataclass, MISSING
 from typing import Optional, Dict, Any
+from matplotlib import rcParams
 
 def _reset_dataclass(obj):
     for f in fields(obj):
@@ -41,7 +42,8 @@ class PlotConfig(BaseConfig):
     defaults_hist: dict = field(default_factory=lambda: {
         'histtype': 'step',
         'linewidth': 1.3,
-        })
+        }) # currently only for PlotMethodsMixin.hist
+    hist_bins: int = rcParams["hist.bins"]
 
 
 @dataclass

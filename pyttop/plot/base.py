@@ -11,10 +11,12 @@ import numpy as np
 from functools import wraps, update_wrapper
 from inspect import signature
 import textwrap
-from ..utils import objdict
-from ..config import config
 from copy import deepcopy
 import matplotlib.colors as mcolors
+import warnings
+
+from ..utils import objdict
+from ..config import config
 
 Axes = matplotlib.axes.Axes
 
@@ -327,13 +329,42 @@ plot.config['ax_label_kwargs_generator'] = _plot_label
 
 @plotFuncAx
 def hist(ax):
-    @wraps(ax.hist)
-    def _hist(x, *args, **kwargs):
+    # @wraps(ax.hist)
+    def _hist(x, bins=None, logx=False, *args, **kwargs):
+        '''
+        Compute and plot a histogram. 
+        This is the equivalent of ``matplotlib.pyplot.hist()``, 
+        but removes masked values of ``x`` and provides additional options.
+
+        Parameters
+        ----------
+        x : array-like
+            Passed to ``matplotlib.pyplot.hist()``.
+        bins : int or sequence or str
+            Passed to ``matplotlib.pyplot.hist()``.
+        logx : bool, optional
+            If True, use logarithmically spaced bins along the x-axis and set
+            the x-axis to a log scale. If ``bins`` is explicitly provided and is 
+            not an integer, this option is ignored.
+            The default is False.
+        *args, **kwargs: 
+            Passed to ``matplotlib.pyplot.hist()``.
+        '''
+        # hist.ax_callback = lambda ax: None
         # Masked arrays are not supported by plt.hist.
         # let us consider this here.
         if np.ma.is_masked(x):
             x = x[~x.mask]
-        return ax.hist(x, *args, **kwargs)
+        if logx:
+            if bins is None or isinstance(bins, int):
+                xmin, xmax = np.nanmin(x), np.nanmax(x)
+                if bins is None: bins = config.plot.hist_bins # use our bins default
+                bins = np.logspace(np.log10(xmin), np.log10(xmax), bins + 1)
+                # hist.ax_callback = lambda ax: ax.set_xscale('log')
+                ax.set_xscale('log')
+            else: 
+                warnings.warn("'logx' was ignored because 'bins' was provided.")
+        return ax.hist(x, bins, *args, **kwargs)
     return _hist
 
 @plotFuncAx
