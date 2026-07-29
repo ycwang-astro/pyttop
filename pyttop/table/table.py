@@ -46,7 +46,7 @@ else:
 from .. import __version__
 from ..config import config
 from ..plot import base as plot 
-from ..utils import objdict, save_pickle, load_pickle, keyword_alias, bitwise_all, pause_and_warn, find_dup, SummaryDict, method_alias, omit_middle
+from ..utils import objdict, save_pickle, load_pickle, keyword_alias, bitwise_all, pause_and_warn, find_dup, SummaryDict, method_alias, omit_middle, resolve_colname_regex
 from .exceptions import FailedToLoadError, SubsetError, SubsetInconsistentError, MergeError, SubsetMergeError, SubsetNotFoundError, GroupNotFoundError, ColumnNotFoundError
 
 subplot_arrange = {
@@ -148,8 +148,9 @@ class Subset():
     - The attribute ``selection`` will be converted to a boolean array;
     - The attribute ``name`` will be set to the default name if it is None;
     - The attribute ``expression`` will be automatically set if it is None;
-    - The attribute ``label`` will be set to ``name`` if it is None; strings will be replaced
-      according to the mapping of dict ``data.col_labels``.
+    - The attribute ``label`` will be set to ``name`` if it is None; 
+      If ``selection`` is evaluated from an expression (str) and neither ``label`` nor ``name`` 
+      is supplied, ``label`` will be automatically generated according to ``data.col_labels`` for simple mathematical expressions.
 
     If the input ``selection`` is/results in a masked (boolean) array, the masked elements
     are filled with False (which means that they are NOT included in this subset by definition).
@@ -318,11 +319,17 @@ class Subset():
         elif type(self.selection) is str:
             if self.expression is None:
                 self.expression = self.selection
+            if self.expression != self.selection:
+                raise ValueError('When a string is used to initialize a Subset, '
+                                 f'the expression (got {self.expression!r}) should be the same as the selection (got {self.selection!r}).')
             if self.name is None:
                 # if '/' in self.expression:
                 #     msg = f"failed to set subset name"
                 #     warnings.warn(msg)
                 self.name = self.expression
+                
+                if self.label is None:
+                    self.label = data.get_labels(self.name, eval=True, eval_kwargs=self.eval_kwargs)
 
             # if self.selection in ['all', 'All']:
             #     self.selection = np.full(len(data), True)
@@ -391,14 +398,15 @@ class Subset():
         # get label
         if self.label is None:
             self.label = self.name
+            # self.label = self.label.replace('$', r'\$')
 
-        # replace colname with label
-        # TODO: this is not robust. This should be used to modify the labels for subset
+        # TODO: replace colname with label 
+        # This should be used to modify the labels for subset
         # initialized by Subset.by_range and Subset.by_value, because they do not know the labels during
         # initialization. If a subset is initialized by Subset() and label is given by the user,
         # it should not be modified.
-        for colname, labelstr in data.col_labels.items():
-            self.label = self.label.replace(colname, labelstr)
+        # for colname, labelstr in data.col_labels.items():
+        #     self.label = self.label.replace(colname, labelstr)
 
         # remove '/' in name
         # '/' may be present in name when setting `self.name = self.expression` and `'/' in self.expression`.
@@ -427,7 +435,7 @@ class Subset():
 
     @property
     def size(self): # the size of the subset
-        return np.sum(np.array(self))
+        return np.sum(np.asarray(self))
 
     def eqs(self, subset):
         '''
@@ -446,7 +454,7 @@ class Subset():
         '''
         if self.data is not subset.data:
             raise ValueError('comparing subsets of different data')
-        return np.all(np.array(self) == np.array(subset))
+        return np.all(np.asarray(self) == np.asarray(subset))
 
     @staticmethod
     def _merge_data_info(method):
@@ -525,19 +533,20 @@ class Subset():
         new_subset._data = self.data
         return new_subset
 
-    def __array__(self):
+    def __array__(self, dtype=None, copy=None):
         # if not hasattr(self.selection, 'dtype') or self.selection.dtype != bool: #not isinstance(self.selection, Iterable):
             # raise TypeError('Selection should be a boolean array. Maybe forgot to run eval_()?')
         if not isinstance(self.selection, np.ndarray) or self.selection.dtype != bool:
             raise TypeError('selection should be a boolean array')
-        if np.ma.is_masked(self.selection): # this never happens after I directly fill masked to False. This is kept to handle instances of old versions.
-            return self.selection.filled(False) # IMPORTANT: Masked elements do NOT belong to this subset!
-        else:
-            return self.selection
+        # if np.ma.is_masked(self.selection): # this never happens after I directly fill masked to False. This is kept to handle instances of old versions.
+        #     return self.selection.filled(False) # IMPORTANT: Masked elements do NOT belong to this subset!
+        if isinstance(self.selection, np.ma.MaskedArray):
+            raise TypeError('selection should not be masked')
+        return np.asarray(self.selection, dtype=dtype, copy=copy)
 
     def __len__(self):
         # this is actually (and should be) the same as len(data).
-        return len(np.array(self))
+        return len(np.asarray(self))
 
     def __repr__(self):
         # return f"Subset('{self.selection}')"
@@ -802,6 +811,7 @@ class Data(plot.PlotMethodsMixin):
         if verbose: print('[match] ' + matchstr)
 
         # return self
+        # TODO: may return matcher or more info in future versions
 
     def unmatch(self, data1, verbose=True):
         '''
@@ -1240,31 +1250,18 @@ class Data(plot.PlotMethodsMixin):
         # cut myself
         data = self.t[matched] # data is not self.t # even if `matched` is all True
         
-        def resolve_regex(table, colname_list):
-            outname = []
-            for name in colname_list:
-                if isinstance(name, str):
-                    outname.append(name)
-                elif isinstance(name, re.Pattern):
-                    outname.extend(cn for cn in table.colnames if name.search(cn))
-                else:
-                    raise TypeError('Expected str or re.Pattern for column names in '
-                                    f'merge_columns/ignore_columns, got {type(name)}')
-            return outname
-        
         # TODO: make Data object itself valid as, e.g., merge_columns keys. (e.g., `self in merge_columns`)
         def filter_columns(data, table):
             # filter columns in `table` based on the list of column names 
             # corresponding to `data` in dicts `merge_columns` and `ignore_columns`
             
-            
             if data.name in merge_columns:
                 keep_columns = merge_columns[data.name]
-                keep_columns = resolve_regex(table, keep_columns)
+                keep_columns = resolve_colname_regex(table, keep_columns)
                 table.keep_columns(keep_columns)
             if data.name in ignore_columns:
                 remove_columnes = ignore_columns[data.name]
-                remove_columnes = resolve_regex(table, remove_columnes)
+                remove_columnes = resolve_colname_regex(table, remove_columnes)
                 table.remove_columns(remove_columnes)
         
         filter_columns(self, data)
@@ -1588,7 +1585,45 @@ class Data(plot.PlotMethodsMixin):
             raise TypeError('"processes" should be None or int.')
         # return Column(result)
         return result
-
+    
+    # patterns 
+    _name_re = re.compile(r'[A-Za-z_]\w*')
+    _explicit_column_ref_re = re.compile(
+        r'''
+        self\s*\[\s*
+            (?P<quote>['"])
+            (?P<self_col>[^'"]*)
+            (?P=quote)
+        \s*\]
+        |
+        \$\(
+            (?P<dollar_col>[^()]*)
+        \)
+        ''',
+        re.VERBOSE,
+        )
+    _explicit_column_ref_mask = '__column_ref__'
+    
+    # Explicit references + ordinary variable-like names
+    _column_ref_re = re.compile(
+        r"""
+        self\s*\[\s*
+            (?P<quote>['"])
+            (?P<self_col>[^'"]*)
+            (?P=quote)
+        \s*\]
+        |
+        \$\(
+            (?P<dollar_col>[^()]*)
+        \)
+        |
+        (?<![\w.])
+            (?P<name>[A-Za-z_]\w*)
+        (?!\w)
+        """,
+        re.VERBOSE,
+        )
+            
     def _get_colnames_variable(self):
         '''
         Get the colnames that can be regarded as names,
@@ -1600,6 +1635,69 @@ class Data(plot.PlotMethodsMixin):
             if count == 1 and colname.isidentifier() and not iskeyword(colname):
                 self.colnames_as_variables.append(colname)
         return self.colnames_as_variables
+    
+    def _prepare_eval_names(self, kwargs):
+        # localvars = locals().copy()
+        localvars = {'self': self}
+        localvars.update(kwargs)
+        
+        predef_vars = list(localvars)
+        
+        self._get_colnames_variable()
+        
+        occupied_colnames = []
+        eval_colnames = []
+        for colname in self.colnames_as_variables:
+            if colname not in localvars and colname not in globals():
+                # if a column name is not occupied by an existing name,
+                # add it to local namespace
+                eval_colnames.append(colname)
+                localvars[colname] = self[colname]
+            else:
+                occupied_colnames.append(colname)
+        #     elif _colname in expression and f"$({_colname})" not in expression:
+        #         # the expression seems to include this column name, but not in $(column name) format
+        #         _existing_names.append(_colname)
+        # if _existing_names:
+        #     warnings.warn("Column names ['{}'] coincidence with existing names in the local/global namespace, ".format("', '".join(_existing_names)) + \
+        #                   'thus are not interpretated as column names. '\
+        #                   "Consider refering column names with $(column name).")
+        
+        return objdict({
+            'predef_vars': predef_vars,
+            'localvars': localvars,
+            'globalvars': globals(),
+            'occupied_colnames': occupied_colnames,
+            'eval_colnames': eval_colnames,
+            })
+
+    def _convert_column_ref(self, expression):
+        '''
+        Convert column reference in eval().
+        
+        ``$(column)`` -> ``self['column']``
+        '''
+        _str_or_dollar_re = re.compile(
+            r'''
+            (?P<string>
+                '(?:\\.|[^'\\])*' # 'string'
+                |
+                "(?:\\.|[^"\\])*" # "string"
+            )
+            |
+            \$\((?P<column>[^()]*)\) # $(column)
+            ''',
+            re.VERBOSE | re.MULTILINE,
+            )
+        def repl(match):
+            # do not replace $(..) in strings
+            if match['string'] is not None:
+                return match.group(0)
+            
+            return f"self[{match['column']!r}]"
+        
+        return _str_or_dollar_re.sub(repl, expression)
+        
 
     def eval(self, expression, to_col=None, **kwargs):
         '''
@@ -1637,35 +1735,42 @@ class Data(plot.PlotMethodsMixin):
         result :
             The result of the evaluation.
         '''
-        localvars = locals().copy()
-        localvars.update(**kwargs)
-        self._get_colnames_variable()
-        _existing_names = []
-        for _colname in self.colnames_as_variables:
-            if _colname not in localvars and _colname not in globals():
-                # if a column name is not occupied by an existing name,
-                # add it to local namespace
-                localvars[_colname] = self[_colname]
-            elif _colname in expression and f"$({_colname})" not in expression:
-                # the expression seems to include this column name, but not in $(column name) format
-                _existing_names.append(_colname)
-        if _existing_names:
-            warnings.warn("Column names ['{}'] coincidence with existing names in the local/global namespace, ".format("', '".join(_existing_names)) + \
-                          'thus are not interpretated as column names. '\
-                          "Consider refering column names with $(column name).")
-        _eval_expression = re.sub(
-            r"\$\((.*?)\)",  # replace $(...)
-            lambda match: f"self['{match.group(1)}']", # to self['...']
-            expression,
-            )
+        for name in kwargs:
+            if name in self.colnames:
+                warnings.warn(f'{name!r} is an existing column name, '
+                              'but provided as keyword argument during evaluation.')
+        
+        eval_vars = self._prepare_eval_names(kwargs)
+        
+        # Check possible occupied colnames
+        masked_expression = self.__class__._explicit_column_ref_re.sub(
+            self.__class__._explicit_column_ref_mask, expression)
+        names_not_colname = []
+        for name in self.__class__._name_re.findall(masked_expression):
+            # limitation: this still matches func(a=1), [x for x in ...], etc.
+            # this is a simple, non-complete warning rather than a complete parser.
+            # if name in eval_vars.occupied_colnames:
+            if name in self.colnames and name not in eval_vars.eval_colnames:
+                names_not_colname.append(name)
+        if names_not_colname:
+            warnings.warn(f'Names {names_not_colname} are present in the expression, but are not interpretaed as column names. '
+                          'If they are column names, use $(column_name) or self["column_name"].')
+        
+        # _eval_expression = re.sub(
+        #     r"\$\((.*?)\)",  # replace $(...)
+        #     lambda match: f"self[{match.group(1)!r}]", # to self['...']
+        #     expression,
+        #     )
+        _eval_expression = self._convert_column_ref(expression)
+        
         # TODO: support `<column_name>`?
         try:
-            result = eval(_eval_expression, globals(), localvars)
+            result = eval(_eval_expression, eval_vars.globalvars, eval_vars.localvars)
         except SyntaxError as e:
-            msg = f"'{expression}': invalid syntax (are you trying to directly refer to unsupported column names?)"
+            msg = f"{expression!r}: invalid syntax (are you trying to directly refer to unsupported column names?)"
             raise SyntaxError(msg) from e
         except NameError as e:
-            msg = f"'{expression}': Unrecognized name '{e.name}'. Check if you have misspelled a column name. If you are using a name defined in your script, consider passing '{e.name}={e.name}' when calling eval()."
+            msg = f"{expression!r}: Unrecognized name '{e.name}'. If you are using a name defined in your script, consider passing '{e.name}={e.name}' when calling eval()."
             raise NameError(msg) from e
 
         if to_col is not None:
@@ -1690,7 +1795,7 @@ class Data(plot.PlotMethodsMixin):
 
         Parameters
         ----------
-        cols : str or list of str, optional
+        cols : str or re.Pattern or list of them, optional
             Name(s) of the columns to be masked. The default is all columns.
         missval : optional
             The value regared as missing value. The default is NaN.
@@ -1700,8 +1805,14 @@ class Data(plot.PlotMethodsMixin):
         '''
         if cols is None:
             cols = self.colnames
-        if isinstance(cols, str):
-            cols = (cols,)
+        elif isinstance(cols, (str, re.Pattern)):
+            cols = [cols]
+        
+        if not isinstance(cols, Iterable):
+            raise TypeError(f'expected str or re.Pattern or list of them for cols, got {type(cols)}')
+        
+        cols = resolve_colname_regex(self, cols)
+        
         if missval is None:
             missval = np.nan
 
@@ -2692,51 +2803,169 @@ class Data(plot.PlotMethodsMixin):
 
     #### plot
 
-    def set_labels(self, **kwargs):
+    def set_labels(self, labels: dict = None, /, **kwargs):
         '''
-        label(<column_name>=<label>)
+        Set or update column labels.
+        
+        The labels for columns are used for plotting, such as axis labels.
 
-        Add/update the labels used for, e.g., the labels on the axes of the plots.
-
-        Example: if ``col1='$x_1$'``, the data in ``data.t['col1']`` will be labeled as '$x_1$' on the plots.
+        Examples
+        --------
+        >>> data.set_labels({'col1': '$c_1$'})
+        >>> data.set_labels(col1='$c_1$', col2='$c_2$')
 
         Parameters
         ----------
-        **kwargs : <column_name:str>=<label:str>
+        labels : dict, optional
+            Mappings of ``column_name -> column_label``.
+        
+        **kwargs : 
+            ``column_name=column_label`` pairs.
         '''
-        self.col_labels.update(**kwargs)
+        # TODO: ensure both name and label are str
+        if labels:
+            self.col_labels.update(labels)
+        if kwargs:
+            self.col_labels.update(kwargs)
 
-    def get_labels(self, *cols, listalways=False, eval=False):
+    # For automatic labels
+    _supported_simple_math_re = re.compile(
+        r'''
+        \s*
+        (?:
+            # Integer, decimal, or scientific-notation number.
+            (?:
+                \d+(?:\.\d*)?
+                |
+                \.\d+
+            )
+            (?:[eE][+-]?\d+)?
+    
+            # Variable-like name.
+            | [A-Za-z_]\w*
+    
+            # Multi-character operators.
+            | \*\*
+            | //
+            | <=
+            | >=
+            | ==
+            | !=
+    
+            # Single-character mathematical and array-mask operators.
+            | [()+\-*/%<>&|^~]
+    
+            # Whitespace.
+            | \s+
+        )*
+        \s*
+        ''',
+        re.VERBOSE,
+        )
+
+    def _is_simple_math_expression(self, expression):
+        # mask explicit references to columns
+        masked_expression = self.__class__._explicit_column_ref_re.sub(
+            self.__class__._explicit_column_ref_mask, expression)
+        
+        # Reject quotes, dots, indexing, commas, colons, brackets, comments,
+        # and other unsupported characters.
+        if self.__class__._supported_simple_math_re.fullmatch(masked_expression) is None:
+            return False
+        
+        # reject function calls: names followed by "(" 
+        _func_call_re = re.compile(r"(?<![\w.])[A-Za-z_]\w*\s*\(")
+        if _func_call_re.search(masked_expression):
+            return False
+        
+        # reject keywords
+        for name in self.__class__._name_re.findall(masked_expression):
+            if iskeyword(name) and name not in ('True', 'False'):
+                return False
+            
+        return True
+
+    def _get_expression_label(self, expression, eval_kwargs=None):
+        if eval_kwargs is None:
+            eval_kwargs = {}
+        
+        # escape $ to make them shown in Matplotlib rather than math text
+        fallback = expression.replace("$", r"\$")
+        
+        # disallow substituting complex expressions
+        if not self._is_simple_math_expression(expression):
+            return fallback
+        
+        eval_vars = self._prepare_eval_names(eval_kwargs)
+        eval_colnames = eval_vars.eval_colnames
+        
+        known_additional_names = (
+            set(eval_vars.predef_vars) | set(eval_vars.globalvars)
+            | {'True', 'False'}
+            )
+        
+        def replace(match):
+            if (coln := match['self_col']) is not None:
+                return self.col_labels.get(coln, coln)
+            
+            if (coln := match['dollar_col']) is not None:
+                return self.col_labels.get(coln, coln)
+            
+            name = match['name']
+            if name in eval_colnames:
+                return self.col_labels.get(name, name)
+            
+            return name
+        
+        label = self.__class__._column_ref_re.sub(replace, expression)
+        return label
+
+    def get_labels(self, *cols, listalways=False, eval=False, eval_kwargs=None):
         '''
-        Get the labels of columns (if not set by ``set_labels``, the column name will be used).
+        Get labels for columns or expressions.
 
         Parameters
         ----------
         *cols : str
-            names of the columns
+            Column names or expressions.
         listalways : bool, optional
-            If True, always returns list of labels (even if len(list) == 1).
+            If True, always returns a list of labels (even when only one input is supplied).
             The default is False.
         eval : bool, optional
-            If True, column names that do not belong to this data will be considered as expressions
-            that can be evaluated with ``Data.eval()``.
+            If True, ``cols`` are regarded as expressions that can be evaluated with ``Data.eval()``.
             The default is False.
+        eval_kwargs : dict, optional
+            Keyword arguments passed to ``Data.eval()`` when the same expression is evaluated.
 
         Returns
         -------
         str or list of str
         '''
+        # This only handles simple mathematical expressions.
+        # Complex expressions should be manually set by the user.
+        
+        if eval_kwargs is None:
+            eval_kwargs = {}
         if not eval:
             labels = [self.col_labels[col] if col in self.col_labels else col for col in cols]
+        
         else: # eval
             labels = []
             for col in cols:
-                if col in self.col_labels:
-                    labels.append(self.col_labels[col])
-                elif col not in self.colnames:
-                    labels.append(col.replace('$', '\\$')) #
+                # keep complex expressions, and convert simple math expressions
+                if (col in self.col_labels
+                    and col not in self.colnames):
+                    label = self.col_labels[col]
+                
                 else:
-                    labels.append(col)
+                    label = self._get_expression_label(col, eval_kwargs=eval_kwargs)
+                
+                # elif col not in self.colnames:
+                #     label = col.replace('$', '\\$') #
+                # else:
+                #     label = col
+                
+                labels.append(label)
 
         if len(labels) == 1 and not listalways:
             return labels[0]
@@ -2896,12 +3125,12 @@ class Data(plot.PlotMethodsMixin):
             label_kwargs = func.config['ax_label_kwargs_generator']
             if ax is not None and columns is not None:
                 ax.set(**label_kwargs(
-                    self.get_labels(*columns, listalways=True, eval=eval),
+                    self.get_labels(*columns, listalways=True, eval=eval, eval_kwargs=eval_kwargs),
                     ))
 
             # special case for my scatter()
             if type(func) == plot.PlotFunction and type(func.func) == plot.Scatter and 'c' in kwarg_columns and 'barlabel' not in kwargs:
-                kwargs['barlabel'] = self.get_labels(kwarg_columns['c'], eval=eval)
+                kwargs['barlabel'] = self.get_labels(kwarg_columns['c'], eval=eval, eval_kwargs=eval_kwargs)
 
         if iter_kwargs != {}:
             # check values
@@ -3168,7 +3397,7 @@ class Data(plot.PlotMethodsMixin):
 
         # special case for my scatter()
         if type(func) == plot.PlotFunction and type(func.func) == plot.Scatter and 'c' in kwarg_columns and 'barlabel' not in kwargs:
-            kwargs['barlabel'] = self.get_labels(kwarg_columns['c'], eval=eval)
+            kwargs['barlabel'] = self.get_labels(kwarg_columns['c'], eval=eval, eval_kwargs=eval_kwargs)
 
         if arraygroups is None:
             # only one axis
@@ -3522,9 +3751,22 @@ class Data(plot.PlotMethodsMixin):
         return len(self.t)
 
     def __getitem__(self, item):
+        item_input = item
+        
         # warnings.warn('Although supported, it is not suggested to access table by directly subscripting Data objects. Use e.g. data.t[index] instead of data[index].')
         if isinstance(item, Subset):
             item = np.array(item) # see also: Data.subset_data()
+        
+        if isinstance(item, re.Pattern):
+            item = [item]
+            
+        if (isinstance(item, (list)) # tuple
+            and any(isinstance(i, re.Pattern) for i in item)):
+            # re.Pattern only for column names
+            item = resolve_colname_regex(self, item)
+            if len(item) == 0:
+                raise ColumnNotFoundError(item_input)
+        
         if np.ma.is_masked(item) and item.dtype == np.bool_:
             warnings.warn('got masked boolean array for item access: masked elements filled with False',
                           stacklevel=2)

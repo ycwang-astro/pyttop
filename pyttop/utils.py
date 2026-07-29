@@ -9,9 +9,9 @@ import numpy as np
 import warnings
 import pickle
 import os
+import re
 from functools import wraps, reduce
 from operator import iand, ior
-
 from typing import Union, Sequence
 
 #%% array/Iterable operations
@@ -172,6 +172,18 @@ def bitwise_all(iterable):
 
 def bitwise_or(iterable):
     return reduce(ior, iterable)
+
+#%% table helpers
+def resolve_colname_regex(table, colname_list):
+    outname = []
+    for name in colname_list:
+        if isinstance(name, str):
+            outname.append(name)
+        elif isinstance(name, re.Pattern):
+            outname.extend(cn for cn in table.colnames if name.search(cn))
+        else:
+            raise TypeError(f'Expected str or re.Pattern for column names, got {type(name)}')
+    return outname
 
 #%% string operations
 def omit_middle(s: str, maxlen: int = 100) -> str:
