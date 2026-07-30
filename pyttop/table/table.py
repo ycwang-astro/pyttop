@@ -7,6 +7,7 @@ Created on Sat Jul 30 2022
 Main tools to store, operate and visualize data tables.
 """
 
+import builtins
 import inspect
 import io
 import json
@@ -140,6 +141,12 @@ class Subset():
     kwargs :
         Arguments passed to ``Data.eval()`` if ``selection`` is evaluated as an expression.
 
+    Warning
+    -------
+    If ``selection`` is a string, it will be evaluated by ``Data.eval()``, which
+    can execute any Python expressions provided. Make sure you fully understand 
+    and verify the content of ``selection`` before evaluating it.
+
     Notes
     -----
     The parameters ``selection``, ``name``, ``expression``, and ``label`` will become attributes of the ``Subset`` object.
@@ -182,6 +189,9 @@ class Subset():
         (<Subset 'NOT(x >= 0)' of Data 'test' (2/3)>, array([ True, False,  True]))
 
     '''
+    # Subsets created by convenience constructors such as by_range() and
+    # by_value() have usable labels immediately. When evaluated against a Data
+    # object, these labels may be improved using that Data object's column labels.
     # Notes for developers
     # --------------------
     # Currently, the '&', '|', '~' operations can only be performed if selection is an boolean array,
@@ -199,6 +209,7 @@ class Subset():
         self.name = name
         self.expression = expression
         self.label = label
+        self._label_resolver = None
         # self.data_name = None
         self._data = None
         self.eval_kwargs = kwargs
@@ -235,18 +246,32 @@ class Subset():
         ``pyttop.table.Subset``
 
         '''
+        range_items = tuple((col, tuple(range_)) for col, range_ in ranges.items())
         # get Subset from range
         def selection(t):
             selected = True
-            for col, range_ in ranges.items():
+            for col, range_ in range_items:
                 selected &= (t[col] > range_[0]) & (t[col] < range_[1])
             return selected # the boolean array
-        name = '&'.join([f'{col}({range_[0]}-{range_[1]})' for col, range_ in ranges.items()])
-        expression = ' & '.join([f'({col} > {range_[0]}) & ({col} < {range_[1]})' for col, range_ in ranges.items()])
-        label = ', '.join([f'{col}$\\in$({range_[0]}, {range_[1]})' for col, range_ in ranges.items()])
+        name = '&'.join([f'{col}({range_[0]}-{range_[1]})' for col, range_ in range_items])
+        expression = ' & '.join([f'({col} > {range_[0]}) & ({col} < {range_[1]})' for col, range_ in range_items])
+        label = ', '.join([f'{col}$\\in$({range_[0]}, {range_[1]})' for col, range_ in range_items])
 
-        name = Subset._remove_slash(name)
-        return cls(selection, name=name, expression=expression, label=label)
+        def resolve_label(data, current_label):
+            # preserve a label manually changed after constrution
+            if current_label != label:
+                return current_label
+            
+            return ', '.join(
+                f'{data.get_labels(col)}'
+                f'$\\in$({range_[0]}, {range_[1]})' 
+                for col, range_ in range_items
+                )
+
+        name = cls._remove_slash(name)
+        subset = cls(selection, name=name, expression=expression, label=label)
+        subset._label_resolver = resolve_label
+        return subset
 
     @classmethod
     def by_value(cls, column, value):
@@ -268,11 +293,27 @@ class Subset():
         def selection(t):
             return t[column] == value # the boolean array
         name = f'{column}={value}'
-        expression = name
-        label = value if type(value) in [str, np.str_] else f'{column}$=$' + '$\\mathrm{' + f'{value}' + '}$'
-
-        name = Subset._remove_slash(name)
-        return cls(selection, name=name, expression=expression, label=label)
+        expression = f'{column} == {value!r}'
+        
+        if isinstance(value, (str, np.str_)):
+            label = str(value)
+        else:
+            label = f'{column}$=\\mathrm{{{value}}}$'
+        
+        def resolve_label(data, current_label):
+            # preserve a label manually changed after constrution
+            if current_label != label:
+                return current_label
+            
+            if isinstance(value, (str, np.str_)):
+                return current_label
+            
+            return f'{data.get_labels(column)}$=\\mathrm{{{value}}}$'
+        
+        name = cls._remove_slash(name)
+        subset = cls(selection, name=name, expression=expression, label=label)
+        subset._label_resolver = resolve_label
+        return subset
 
     @staticmethod
     def _remove_slash(name, rep='_'):
@@ -396,17 +437,22 @@ class Subset():
             self.name = f'subset{i}'
 
         # get label
+        if self._label_resolver is not None:
+            # This is useful for subsets initialized by Subset.by_range or Subset.by_value, 
+            # because they do not know the labels during initialization. 
+            # If a subset is initialized by Subset() and label is given by the user,
+            # it should not be modified.
+            resolved_label = self._label_resolver(data, self.label)
+            
+            if not isinstance(resolved_label, str):
+                raise TypeError(f'Subset label resolver should return a string, got {type(resolved_label)}.')
+            
+            self.label = resolved_label
+            self._label_resolver = None # execute _label_resolver only once
+        
         if self.label is None:
             self.label = self.name
             # self.label = self.label.replace('$', r'\$')
-
-        # TODO: replace colname with label 
-        # This should be used to modify the labels for subset
-        # initialized by Subset.by_range and Subset.by_value, because they do not know the labels during
-        # initialization. If a subset is initialized by Subset() and label is given by the user,
-        # it should not be modified.
-        # for colname, labelstr in data.col_labels.items():
-        #     self.label = self.label.replace(colname, labelstr)
 
         # remove '/' in name
         # '/' may be present in name when setting `self.name = self.expression` and `'/' in self.expression`.
@@ -568,6 +614,7 @@ class Subset():
         state = self.__dict__.copy()
         del state['_data'] # data should not be pickled
         del state['eval_kwargs'] # eval_kwargs can have external objects
+        del state['_label_resolver']
         return state
 
     def __setstate__(self, state):
@@ -1637,6 +1684,15 @@ class Data(plot.PlotMethodsMixin):
         return self.colnames_as_variables
     
     def _prepare_eval_names(self, kwargs):
+        '''
+        Analyze and prepare the namespace for Data.eval().
+        '''
+        # globalvars = globals() # in older versions
+        globalvars = {
+            '__builtins__': builtins.__dict__,
+            'np': np,
+            }
+        
         # localvars = locals().copy()
         localvars = {'self': self}
         localvars.update(kwargs)
@@ -1648,7 +1704,7 @@ class Data(plot.PlotMethodsMixin):
         occupied_colnames = []
         eval_colnames = []
         for colname in self.colnames_as_variables:
-            if colname not in localvars and colname not in globals():
+            if colname not in localvars and colname not in globalvars:
                 # if a column name is not occupied by an existing name,
                 # add it to local namespace
                 eval_colnames.append(colname)
@@ -1666,7 +1722,7 @@ class Data(plot.PlotMethodsMixin):
         return objdict({
             'predef_vars': predef_vars,
             'localvars': localvars,
-            'globalvars': globals(),
+            'globalvars': globalvars,
             'occupied_colnames': occupied_colnames,
             'eval_colnames': eval_colnames,
             })
@@ -1711,6 +1767,12 @@ class Data(plot.PlotMethodsMixin):
         - ``self['<column name>']``.
 
         The Data object itself can be referred to as ``self``.
+
+        Warning
+        -------
+        This method evaluates any Python expressions provided by the caller within the current Python process. 
+        Only evaluate expressions from trusted sources. Make sure you fully understand and verify any code before evaluating it.
+        This method is not a sandbox and should typically be used only for simple, controlled data computations.
 
         Parameters
         ----------
@@ -3011,6 +3073,7 @@ class Data(plot.PlotMethodsMixin):
         eval : bool, optional
             If set to ``True``, the names of data columns for ``cols`` and ``kwcols`` will be regarded as expressions to be evaluated with ``Data.eval()``.
             This means that you can not only input column names, but also input expressions. See :meth:`~Data.eval` for the syntax of expressions.
+            Make sure you fully understand the expressions, as ``Data.eval()`` can execute any Python expressions.
             Otherwise, the names will simply be considered as column names.
             The default is False.
         eval_kwargs : dict, optional
@@ -3272,6 +3335,7 @@ class Data(plot.PlotMethodsMixin):
         eval : bool, optional
             If set to ``True``, the names of data columns for ``cols`` and ``kwcols`` will be regarded as expressions to be evaluated with ``Data.eval()``.
             This means that you can not only input column names, but also input expressions. See :meth:`Data.eval` for the syntax of expressions.
+            Make sure you fully understand the expressions, as ``Data.eval()`` can execute any Python expressions.
             Otherwise, the names will simply be considered as column names.
             The default is False.
         eval_kwargs : dict, optional
@@ -3561,29 +3625,30 @@ class Data(plot.PlotMethodsMixin):
         if format == 'pkl':
             save_pickle(path, self, yes=overwrite)
 
-        elif format == 'data': # save important data in a zip file
+        elif format == 'data': # save key data in a zip file
             if path[-5:] != '.data':
                 path += '.data'
             if not overwrite and os.path.exists(path):
                 raise FileExistsError(f'File "{path}" already exists. To overwrite, use the argument "overwrite=True".')
+            save_meta = objdict(self.__class__.save_meta)
             with zipfile.ZipFile(path, mode='w', compression=zipfile.ZIP_DEFLATED) as datazip:
                 # save data_to_save
-                for attr, method in Data.data_to_save.items():
+                for attr, method in save_meta.data_to_save.items():
                     if method == 'astropy.table':
-                        fname = attr + Data.table_ext
+                        fname = attr + save_meta.table_ext
                         table = getattr(self, attr)
                         assert type(table) == Table
-                        if Data.table_format.startswith('ascii.'): # uses astropy.io.ascii
+                        if save_meta.table_format.startswith('ascii.'): # uses astropy.io.ascii
                             # get the string
                             with io.StringIO() as sf:
-                                table.write(sf, format=Data.table_format)
+                                table.write(sf, format=save_meta.table_format)
                                 table_str = sf.getvalue()
                             table_str = table_str.encode()
                             with datazip.open(fname, mode='w') as f:
                                 f.write(table_str)
                         else:
                             with datazip.open(fname, mode='w') as f:
-                                table.write(f, format=Data.table_format) # ascii.ecsv
+                                table.write(f, format=save_meta.table_format) # ascii.ecsv
                     elif method == 'pkl':
                         fname = attr + '.pkl'
                         with datazip.open(fname, mode='w') as f:
@@ -3606,7 +3671,6 @@ class Data(plot.PlotMethodsMixin):
 
                 # save save_meta
                 with datazip.open('.save_meta.json', mode='w') as f:
-                    save_meta = self.__class__.save_meta
                     meta = json.dumps(save_meta, indent=4)
                     meta = bytes(meta, 'ascii')
                     f.write(meta)
@@ -3644,6 +3708,12 @@ class Data(plot.PlotMethodsMixin):
         Returns
         -------
         data : ``pyttop.table.Data``
+        
+        Warning
+        -------
+        Some supported formats use Python pickle internally. 
+        Loading a malicious or tempered file may execute arbitrary code. 
+        Only load files from trusted sources.
         '''
         if format == 'data':
             attrs = {}
