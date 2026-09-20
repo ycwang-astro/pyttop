@@ -2465,9 +2465,16 @@ class Data(plot.PlotMethodsMixin):
         # is never remembered by a ``pyttop.table.Data`` instance)
 
         if path is None and name is None and group is None:
-            return self.subsets()
+            return self._get_subset_summarydict()
 
         return self._get_subsets(path=path, name=name, group=group, listalways=listalways, force=force)
+
+    # @property
+    def _get_subset_summarydict(self):
+        '''
+        Retrieve subsets organized by group and subset names, accessible like a nested dictionary.
+        '''
+        return SummaryDict(self.subset_groups, dict_name=f"subsets of Data '{self.name}'", element_names=['groups', 'subsets'], join_str=': ')
 
     def _get_subsets(self, path=None, name=None, group=None, listalways=False, force=False):
         # see user API get_subsets()
@@ -2850,18 +2857,6 @@ class Data(plot.PlotMethodsMixin):
                     label=subset.label,
                     ))
         return summary
-
-    # @property
-    def subsets(self):
-        '''
-        Retrieve subsets organized by group and subset names, accessible like a nested dictionary.
-
-        Example
-        -------
-            >>> subsets = data.subsets()
-            >>> mysubset = subsets['group_name']['subset_name']
-        '''
-        return SummaryDict(self.subset_groups, dict_name=f"subsets of Data '{self.name}'", element_names=['groups', 'subsets'], join_str=': ')
 
     #### plot
 
@@ -3269,7 +3264,7 @@ class Data(plot.PlotMethodsMixin):
         return ret
 
     @keyword_alias('deprecated', columns='cols', kwarg_columns='kwcols') # deprecated old names
-    @keyword_alias('accepted', group='plotgroups', groups='plotgroups', paths='plotpaths', subsets='plotsubsets', ax='axes') # make plot() arguments acceptable here
+    @keyword_alias('accepted', group='plotgroups', groups='plotgroups', subsetpaths='plotpaths', paths='plotpaths', subsets='plotsubsets', ax='axes') # make plot() arguments acceptable here
     def plots(self, func, *args, cols=None, kwcols={}, eval=False, eval_kwargs={},
               plotpaths=None, plotsubsets=None, plotgroups=None,
               arraygroups=None, global_selection=None,
@@ -3344,6 +3339,8 @@ class Data(plot.PlotMethodsMixin):
             The default is {}.
         paths, subsets, groups :
             aliases of "plotpaths", "plotsubsets" and "plotgroups".
+        subsetpaths : 
+            alias of "plotpaths".
         plotpaths : str or list of str, optional
             The full path of a subset (e.g. ``'<group_name>/<subset_name>'``) or a list of paths, for plots in each subplot.
             If this is given, arguments ``plotsubsets`` and ``plotgroups`` are ignored.
